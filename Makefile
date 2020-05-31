@@ -28,6 +28,6 @@ deps:
 build:
 	sh $(PWD)/scripts/build.sh
 
-ci: $(MAKE) test dep-linter lint
+ci: $(MAKE) deps test dep-linter lint
 
-.PHONY: test integ deps lint
+.PHONY: deps test integ lint
