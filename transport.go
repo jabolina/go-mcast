@@ -60,7 +60,6 @@ type WithPeers interface {
 	DisconnectAll()
 }
 
-
 // Provides a low level stream abstraction for NetworkTransport
 type StreamLayer interface {
 	net.Listener

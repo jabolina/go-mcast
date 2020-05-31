@@ -10,7 +10,7 @@ import (
 
 var (
 	errorNotAdvertiseAddress = errors.New("local bind address not advertisable")
-	errorNotTCP = errors.New("local address is not TCP")
+	errorNotTCP              = errors.New("local address is not TCP")
 )
 
 type Creator func(stream StreamLayer) *NetworkTransport
@@ -18,7 +18,7 @@ type Creator func(stream StreamLayer) *NetworkTransport
 // Implements StreamLayer for plain TCP
 type TCPStreamLayer struct {
 	advertise net.Addr
-	listener *net.TCPListener
+	listener  *net.TCPListener
 }
 
 // NewTCPTransport returns a NetworkTransport that is built on top of
@@ -62,7 +62,7 @@ func NewTCPTransportWithConfig(
 	})
 }
 
-func newTCPTransport(addr string, advertise net.Addr, factory Creator) (*NetworkTransport, error)  {
+func newTCPTransport(addr string, advertise net.Addr, factory Creator) (*NetworkTransport, error) {
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -111,4 +111,3 @@ func (t *TCPStreamLayer) Addr() net.Addr {
 	}
 	return t.listener.Addr()
 }
-

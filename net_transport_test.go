@@ -33,9 +33,9 @@ func TestNetworkTransport_PooledConn(t *testing.T) {
 	rpcCh := consumer.Consumer()
 
 	args := GMCastRequest{
-		RPCHeader:   RPCHeader{ProtocolVersion: 0},
-		UID:         "test-unique",
-		Body:        Message{
+		RPCHeader: RPCHeader{ProtocolVersion: 0},
+		UID:       "test-unique",
+		Body: Message{
 			State:      0,
 			Timestamp:  0,
 			Data:       []byte("hello, test!"),

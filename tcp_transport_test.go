@@ -16,7 +16,7 @@ func TestTCPTransport_BadAddress(t *testing.T) {
 // Test that the advertised address is the current local address
 func TestTCPTransport_WithAdvertiseAddress(t *testing.T) {
 	addr := &net.TCPAddr{
-		IP: []byte{127, 0, 0, 1},
+		IP:   []byte{127, 0, 0, 1},
 		Port: 56700,
 	}
 	trans, err := NewTCPTransportWithLogger("0.0.0.0:0", addr, 1, 0, newTestLogger(t))
