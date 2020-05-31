@@ -1,4 +1,4 @@
-package go_mcast
+package mcast
 
 // The version of the protocol, that includes RPC messages
 // and the implementation specific treatment. Use the

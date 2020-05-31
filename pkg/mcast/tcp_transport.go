@@ -1,4 +1,4 @@
-package go_mcast
+package mcast
 
 import (
 	"errors"
@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	errorNotAdvertiseAddress = errors.New("local bind address not advertisable")
-	errorNotTCP              = errors.New("local address is not TCP")
+	ErrorNotAdvertiseAddress = errors.New("local bind address not advertised")
+	ErrorNotTCP              = errors.New("local address is not TCP")
 )
 
 type Creator func(stream StreamLayer) *NetworkTransport
@@ -76,12 +76,12 @@ func newTCPTransport(addr string, advertise net.Addr, factory Creator) (*Network
 	available, ok := stream.Addr().(*net.TCPAddr)
 	if !ok {
 		lis.Close()
-		return nil, errorNotTCP
+		return nil, ErrorNotTCP
 	}
 
 	if available.IP.IsUnspecified() {
 		lis.Close()
-		return nil, errorNotAdvertiseAddress
+		return nil, ErrorNotAdvertiseAddress
 	}
 
 	trans := factory(stream)

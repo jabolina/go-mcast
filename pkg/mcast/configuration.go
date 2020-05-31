@@ -1,4 +1,4 @@
-package go_mcast
+package mcast
 
 // Unique ServerID across all servers used for identification.
 type ServerID string

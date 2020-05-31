@@ -1,4 +1,4 @@
-package go_mcast
+package mcast
 
 import (
 	"bufio"

@@ -1,4 +1,4 @@
-package go_mcast
+package mcast
 
 // RPCHeader is common sub-structure between request to pass common
 // needed information about functionalities.

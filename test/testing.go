@@ -1,4 +1,4 @@
-package go_mcast
+package test
 
 import (
 	"github.com/hashicorp/go-hclog"
