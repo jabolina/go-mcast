@@ -12,17 +12,21 @@ else
 endif
 
 test:
+	echo "executing tests"
 	GOTRACEBACK=all go test $(TESTARGS) -timeout=60s -race test/*
 	GOTRACEBACK=all go test $(TESTARGS) -timeout=60s -tags batchtest -race test/*
 
 lint:
+	echo "executing linter"
 	gofmt -s -w .
 	golangci-lint run -c .golangci-lint.yml $(FMT) pkg/**/*
+	golangci-lint run -c .golangci-lint.yml $(FMT) internal/*
 
 dep-linter:
 	curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | sh -s -- -b $(ENV)/bin $(GOLANG_CI_VERSION)
 
 deps:
+	echo "getting dependencies"
 	go get -t -d -v ./...
 
 build:
@@ -30,4 +34,4 @@ build:
 
 ci: deps test dep-linter lint
 
-.PHONY: deps test integ lint
+.PHONY: deps test lint
