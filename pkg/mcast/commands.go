@@ -1,5 +1,7 @@
 package mcast
 
+import "go-mcast/internal"
+
 // RPCHeader is common sub-structure between request to pass common
 // needed information about functionalities.
 type RPCHeader struct {
@@ -25,7 +27,7 @@ type GMCastRequest struct {
 	UID UID
 
 	// The message payload to be replicated
-	Body Message
+	Body internal.Message
 
 	// Addresses to send the request
 	Destination []ServerAddress

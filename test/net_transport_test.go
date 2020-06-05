@@ -1,6 +1,7 @@
 package test
 
 import (
+	"go-mcast/internal"
 	"go-mcast/pkg/mcast"
 	"reflect"
 	"sync"
@@ -36,7 +37,7 @@ func TestNetworkTransport_PooledConn(t *testing.T) {
 	args := mcast.GMCastRequest{
 		RPCHeader: mcast.RPCHeader{ProtocolVersion: 0},
 		UID:       "test-unique",
-		Body: mcast.Message{
+		Body: internal.Message{
 			State:      0,
 			Timestamp:  0,
 			Data:       []byte("hello, test!"),

@@ -13,8 +13,8 @@ endif
 
 test:
 	echo "executing tests"
-	GOTRACEBACK=all go test $(TESTARGS) -timeout=60s -race test/*
-	GOTRACEBACK=all go test $(TESTARGS) -timeout=60s -tags batchtest -race test/*
+	GOTRACEBACK=all go test $(TESTARGS) -timeout=60s -race test/**/*
+	GOTRACEBACK=all go test $(TESTARGS) -timeout=60s -tags batchtest -race test/**/*
 
 lint:
 	echo "executing linter"

@@ -8,6 +8,8 @@ import (
 )
 
 var (
+	// Err is returned when an RPC arrives in a version that the current
+	// unity cannot handle.
 	ErrUnsupportedProtocol = errors.New("protocol version not supported")
 )
 
@@ -28,24 +30,30 @@ type Unity struct {
 	// logger utilities, protocol version, etc.
 	configuration mcast.Config
 
-	// Store the local unity address
+	// The unity state machine to commit values.
+	sm StateMachine
+
+	// Store the local unity address.
 	address mcast.ServerAddress
 
-	// Transport layer for communication
+	// Transport layer for communication.
 	trans mcast.Transport
 
-	// Shutdown channel to exit, protected to prevent concurrent exits
+	// Storage for storing information about the state machine.
+	storage mcast.Storage
+
+	// Shutdown channel to exit, protected to prevent concurrent exits.
 	off poweroff
 }
 
-// Creates an RPC header to be sent across RPC requests
+// Creates an RPC header to be sent across RPC requests.
 func (u *Unity) getRPCHeader() mcast.RPCHeader {
 	return mcast.RPCHeader{
 		ProtocolVersion: u.configuration.Version,
 	}
 }
 
-// Verify if the current version can handle the current RPC request
+// Verify if the current version can handle the current RPC request.
 func (u *Unity) checkRPCHeader(rpc mcast.RPC) error {
 	h, ok := rpc.Command.(mcast.WithRPCHeader)
 	if !ok {
@@ -63,3 +71,5 @@ func (u *Unity) checkRPCHeader(rpc mcast.RPC) error {
 
 	return nil
 }
+
+

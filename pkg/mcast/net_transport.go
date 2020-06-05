@@ -434,7 +434,7 @@ func (n *NetworkTransport) GMCast(id ServerID, target ServerAddress, req *GMCast
 	return n.genericRPC(id, target, rpcGMCast, req, res)
 }
 
-// Shutdown the current transport
+// Shutdown the current transport.
 func (n *NetworkTransport) Close() error {
 	n.shutdownLock.Lock()
 	defer n.shutdownLock.Unlock()
