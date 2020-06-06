@@ -2,36 +2,64 @@ package amcast
 
 import (
 	"go-mcast/pkg/mcast"
+	"hash/fnv"
+	"math"
+	"math/rand"
 	"sync"
+	"time"
 )
 
-// Holds information about older messages
+// Holds information about older messages.
 type PreviousSet struct {
 	mutex  sync.Mutex
-	values map[mcast.UID]bool
+	values map[uint64]mcast.UID
+	size   uint64
+	p      uint64
+	a      uint64
+	b      uint64
 }
 
 // The conflict relationship is used to compute if the given message unique identifier
 // conflicts with any other identifier on the previous set, is used to order the
 // requests, used for clock changes and for the delivery process.
 type ConflictRelationship interface {
-	Conflicts(mcast.UID) bool
+	Conflicts(id mcast.ServerID) bool
+}
+
+// Using a universal hash function, hashes the received UID.
+func (h *PreviousSet) hash(destinations []mcast.ServerAddress) uint64 {
+	hasher := fnv.New64()
+	for _, v := range destinations {
+		_, err := hasher.Write([]byte(v))
+		if err != nil {
+			return 0
+		}
+	}
+
+	code := hasher.Sum64()
+	return ((h.a*code + h.b) % h.p) % h.size
 }
 
 // The PreviousSet implements the ConflictRelationship interface.
-func (ps *PreviousSet) Conflicts(message mcast.UID) bool {
-	return true
+// Will be used a universal hash function to verify the collision between requests,
+// if the hash generated from the message destination collides, that will indicate that
+// the messages conflicts, since exists another request for the same region being
+// processed.
+func (ps *PreviousSet) Conflicts(id []mcast.ServerAddress) bool {
+	code := ps.hash(id)
+	_, ok := ps.values[code]
+	return ok
 }
 
 // Add a new message into the previous set
-func (ps *PreviousSet) Add(message mcast.UID) {
+func (ps *PreviousSet) Add(destination []mcast.ServerAddress, uid mcast.UID) {
 	ps.mutex.Lock()
 	defer ps.mutex.Unlock()
-	ps.values[message] = true
+	ps.values[ps.hash(destination)] = uid
 }
 
 // Return the values present on the set on the time of the read.
-func (ps *PreviousSet) Values() map[mcast.UID]bool {
+func (ps *PreviousSet) Values() map[uint64]mcast.UID {
 	ps.mutex.Lock()
 	values := ps.values
 	ps.mutex.Unlock()
@@ -47,13 +75,52 @@ func (ps *PreviousSet) Clear() {
 		delete(ps.values, k)
 	}
 
-	ps.values = make(map[mcast.UID]bool)
+	ps.values = make(map[uint64]mcast.UID)
 }
 
 // Creates a new PreviousSet
 func NewPreviousSet() *PreviousSet {
+	source := rand.NewSource(time.Now().UnixNano())
+	generator := rand.New(source)
+	size := int64(math.Abs(float64(generator.Int63n(math.MaxInt64 / 2))))
+	p, a, b := generatePrimes(generator, size)
+
 	return &PreviousSet{
 		mutex:  sync.Mutex{},
-		values: make(map[mcast.UID]bool),
+		values: make(map[uint64]mcast.UID),
+		size:   uint64(size),
+		p:      p,
+		a:      a,
+		b:      b,
 	}
+}
+
+// The universal hash function needs the use of random generated prime numbers.
+// This function will generated the needed numbers.
+func generatePrimes(generator *rand.Rand, size int64) (uint64, uint64, uint64) {
+	seed := generator.Int63n(2 * size)
+	for seed < size || !isPrime(seed) {
+		seed = generator.Int63n(2 * size)
+	}
+
+	a := uint64(generator.Int63n(seed))
+	b := uint64(generator.Int63n(seed))
+	for b == a {
+		b = uint64(generator.Int63n(seed))
+	}
+	return uint64(seed), a, b
+}
+
+// Verifies if the given number is prime or not.
+func isPrime(value int64) bool {
+	if value <= 3 || value%2 == 0 {
+		return false
+	}
+
+	divisor := int64(3)
+	for (divisor <= int64(math.Sqrt(float64(value)))) && (value%divisor != 0) {
+		divisor += 2
+	}
+
+	return value%divisor != 0
 }

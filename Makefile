@@ -12,9 +12,7 @@ else
     FMT=--enable gofmt
 endif
 
-.PHONY: all
-
-test: # @HELP execute tests
+test_rule: # @HELP execute tests
 	echo "executing tests"
 	GOTRACEBACK=all go test $(TESTARGS) -timeout=60s -race ./test/...
 	GOTRACEBACK=all go test $(TESTARGS) -timeout=60s -tags batchtest -race ./test/...
@@ -35,6 +33,8 @@ build: # @HELP build the packages
 	sh $(PWD)/scripts/build.sh
 
 ci: # @HELP executes on CI
-ci: deps test dep-linter lint
+ci: deps test_rule dep-linter lint
 
-all: deps test lint
+all: deps test_rule lint
+
+.PHONY: all build

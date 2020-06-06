@@ -236,12 +236,12 @@ func (u *Unity) processCompute(rpc mcast.RPC, r *mcast.ComputeRequest) {
 	}()
 
 	if r.State == remote.S0 {
-		if u.previousSet.Conflicts(r.UID) {
+		if u.previousSet.Conflicts(r.Destination) {
 			u.state.Clk.Tick()
 			u.previousSet.Clear()
 		}
 		r.Timestamp = u.state.Clk.Tock()
-		u.previousSet.Add(r.UID)
+		u.previousSet.Add(r.Destination, r.UID)
 	}
 
 	if len(r.Destination) > 1 {
