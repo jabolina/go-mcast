@@ -1,7 +1,7 @@
 package concurrent
 
 import (
-	"go-mcast/pkg/mcast/concurrent"
+	"go-mcast/internal/concurrent"
 	"testing"
 	"time"
 )
@@ -47,7 +47,7 @@ func TestDetector_RoutineStarvation(t *testing.T) {
 		if ok {
 			t.Fatalf("expected to starvate")
 		}
-	case <-time.After(timeout + 25 * time.Millisecond):
+	case <-time.After(timeout + 25*time.Millisecond):
 		t.Fatalf("starvation not completed on timeout %s", timeout)
 	}
 }

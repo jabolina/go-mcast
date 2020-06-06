@@ -15,7 +15,7 @@ linters:
     - govet
     #- varcheck
     #- typecheck
-    #- gosimple
+    - gosimple
 
 issues:
   exclude-use-default: false

@@ -2,7 +2,7 @@ package concurrent
 
 import (
 	"context"
-	"go-mcast/pkg/mcast/concurrent"
+	"go-mcast/internal/concurrent"
 	"testing"
 )
 

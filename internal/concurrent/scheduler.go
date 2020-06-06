@@ -25,20 +25,20 @@ type Scheduler interface {
 type fifo struct {
 	mutex sync.Mutex
 
-	ch chan struct{}
+	ch        chan struct{}
 	completed int
-	pending []Job
+	pending   []Job
 
-	ctx context.Context
+	ctx         context.Context
 	cancellable context.CancelFunc
 
 	finishes *sync.Cond
-	close chan struct{}
+	close    chan struct{}
 }
 
 func NewScheduler() Scheduler {
 	s := &fifo{
-		ch: make(chan struct{}, 1),
+		ch:    make(chan struct{}, 1),
 		close: make(chan struct{}, 1),
 	}
 
@@ -95,7 +95,7 @@ func (s *fifo) Stop() {
 }
 
 // Keeps polling the scheduled jobs for execution forever
-func (s *fifo) forever()  {
+func (s *fifo) forever() {
 	defer func() {
 		close(s.close)
 		close(s.ch)

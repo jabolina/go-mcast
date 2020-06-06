@@ -1,4 +1,4 @@
-package internal
+package remote
 
 // Describes at which state the current message is.
 // Messages at state with value 0 do not have a timestamp yet.

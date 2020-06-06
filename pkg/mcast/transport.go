@@ -45,6 +45,12 @@ type Transport interface {
 
 	// Send the appropriate RPC request to the target peer.
 	GMCast(id ServerID, target ServerAddress, req *GMCastRequest, res *GMCastResponse) error
+
+	// Used to ask group peers to compute each own a timestamp for the request.
+	Compute(id ServerID, target ServerAddress, req *ComputeRequest, res *ComputeResponse) error
+
+	// Used to exchange and agree about a final timestamp for the request.
+	Gather(id ServerID, target ServerAddress, req *GatherRequest, res *GatherResponse) error
 }
 
 // Interface that a Transport can provide which allows connections

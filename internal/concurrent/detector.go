@@ -9,15 +9,15 @@ import (
 // a routine takes to complete or by verifying how
 // long it takes between events.
 type Detector struct {
-	mutex sync.Mutex
+	mutex   sync.Mutex
 	timeout time.Duration
-	mem map[uint64]time.Time
+	mem     map[uint64]time.Time
 }
 
 func NewDetector(timeout time.Duration) *Detector {
 	return &Detector{
 		timeout: timeout,
-		mem: make(map[uint64]time.Time),
+		mem:     make(map[uint64]time.Time),
 	}
 }
 

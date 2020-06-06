@@ -16,6 +16,8 @@ import (
 
 const (
 	rpcGMCast uint8 = iota
+	rpcCompute
+	rpcGather
 	rpcRecover
 	DefaultTimeoutScale = 256 * 1024 // 256KB
 )
@@ -280,6 +282,18 @@ func (n *NetworkTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, en
 		}
 
 		rpc.Command = &req
+	case rpcCompute:
+		var req ComputeRequest
+		if err := dec.Decode(&req); err != nil {
+			return err
+		}
+		rpc.Command = &req
+	case rpcGather:
+		var req GatherRequest
+		if err := dec.Decode(&req); err != nil {
+			return err
+		}
+		rpc.Command = &req
 	case rpcRecover:
 		return errors.New("recover not ready yet")
 	default:
@@ -432,6 +446,16 @@ func (n *NetworkTransport) LocalAddress() ServerAddress {
 // Implements the Transport interface.
 func (n *NetworkTransport) GMCast(id ServerID, target ServerAddress, req *GMCastRequest, res *GMCastResponse) error {
 	return n.genericRPC(id, target, rpcGMCast, req, res)
+}
+
+// Implements Transport interface
+func (n *NetworkTransport) Compute(id ServerID, target ServerAddress, req *ComputeRequest, res *ComputeResponse) error {
+	return n.genericRPC(id, target, rpcCompute, req, res)
+}
+
+// Implements Transport interface
+func (n *NetworkTransport) Gather(id ServerID, target ServerAddress, req *GatherRequest, res *GatherResponse) error {
+	return n.genericRPC(id, target, rpcGather, req, res)
 }
 
 // Shutdown the current transport.
