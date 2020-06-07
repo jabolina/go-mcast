@@ -106,7 +106,7 @@ func (n *netConn) Release() error {
 // Creates a new NetworkTransport with the given configuration parameters
 func NewNetworkTransportWithConfig(config *NetworkTransportConfig) *NetworkTransport {
 	if config.Logger == nil {
-		config.Logger = &DefaultLogger{}
+		config.Logger = NewDefaultLogger()
 	}
 	trans := &NetworkTransport{
 		connPool:              make(map[ServerAddress][]*netConn),
@@ -152,7 +152,7 @@ func NewNetworkTransport(
 	if logOutput == nil {
 		logOutput = os.Stderr
 	}
-	logger := &DefaultLogger{}
+	logger := NewDefaultLogger()
 	config := &NetworkTransportConfig{
 		Stream:  stream,
 		MaxPool: maxPool,
@@ -164,6 +164,7 @@ func NewNetworkTransport(
 
 // Listen for incoming connections.
 func (n *NetworkTransport) listen() {
+	n.logger.Infof("starting to listen on %s", n.LocalAddress())
 	const baseDelay = 5 * time.Millisecond
 	const maxDelay = 1 * time.Second
 
@@ -185,7 +186,7 @@ func (n *NetworkTransport) listen() {
 			}
 
 			if !n.IsShutdown() {
-				n.logger.Error("failed to accept connect. %v", err)
+				n.logger.Errorf("failed to accept connect. %v", err)
 			}
 
 			// Wait again to proceed
@@ -198,7 +199,7 @@ func (n *NetworkTransport) listen() {
 		}
 
 		loopDelay = 0
-		n.logger.Debug("accepted connection with local-address %s and remote-address %s", n.LocalAddress(), conn.RemoteAddr().String())
+		n.logger.Debugf("accepted connection with local-address %s and remote-address %s", n.LocalAddress(), conn.RemoteAddr().String())
 		go n.handleConn(n.getStreamContext(), conn)
 	}
 }
@@ -240,13 +241,13 @@ func (n *NetworkTransport) handleConn(ctx context.Context, conn net.Conn) {
 
 		if err := n.handleCommand(r, dec, enc); err != nil {
 			if err != io.EOF {
-				n.logger.Error("failed to decode incoming command. %v", err)
+				n.logger.Errorf("failed to decode incoming command. %v", err)
 			}
 			return
 		}
 
 		if err := w.Flush(); err != nil {
-			n.logger.Error("failed to flush response. %v", err)
+			n.logger.Errorf("failed to flush response. %v", err)
 			return
 		}
 	}
@@ -317,6 +318,9 @@ func (n *NetworkTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, en
 	return nil
 }
 
+// Send a generic RPC request req of the type rpcType to the target server.
+// The request have a deadline configured globally for the transport,
+// and the response will be available at res.
 func (n *NetworkTransport) genericRPC(id ServerID, target ServerAddress, rpcType uint8, req interface{}, res interface{}) error {
 	conn, err := n.getConnFromAddressResolver(id, target)
 	if err != nil {
@@ -327,6 +331,7 @@ func (n *NetworkTransport) genericRPC(id ServerID, target ServerAddress, rpcType
 		conn.conn.SetDeadline(time.Now().Add(n.timeout))
 	}
 
+	n.logger.Debugf("sending rpc %#v to %s", req, target)
 	if err = sendRPC(conn, rpcType, req); err != nil {
 		return err
 	}

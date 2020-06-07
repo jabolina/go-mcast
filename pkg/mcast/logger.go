@@ -42,6 +42,13 @@ const (
 	fatal     = "FATAL"
 )
 
+func NewDefaultLogger() *DefaultLogger {
+	return &DefaultLogger{
+		Logger: log.New(os.Stderr, "mcast", log.LstdFlags),
+		debug:  false,
+	}
+}
+
 // Use the given log level as prefix
 func level(prefix, message string) string {
 	return fmt.Sprintf("[%s]: %s", prefix, message)
