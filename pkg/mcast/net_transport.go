@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-msgpack/codec"
 	"io"
 	"net"
@@ -49,7 +48,7 @@ type NetworkTransport struct {
 
 	consumeCh chan RPC
 
-	logger hclog.Logger
+	logger Logger
 
 	maxPool int
 
@@ -73,7 +72,7 @@ type NetworkTransportConfig struct {
 	// Override the target address when establishing a connection to invoke and RPC.
 	ServerAddressResolver ServerAddressResolver
 
-	Logger hclog.Logger
+	Logger Logger
 
 	// Dialer.
 	Stream StreamLayer
@@ -107,11 +106,7 @@ func (n *netConn) Release() error {
 // Creates a new NetworkTransport with the given configuration parameters
 func NewNetworkTransportWithConfig(config *NetworkTransportConfig) *NetworkTransport {
 	if config.Logger == nil {
-		config.Logger = hclog.New(&hclog.LoggerOptions{
-			Name:   "mcast-net",
-			Output: hclog.DefaultOutput,
-			Level:  hclog.DefaultLevel,
-		})
+		config.Logger = &DefaultLogger{}
 	}
 	trans := &NetworkTransport{
 		connPool:              make(map[ServerAddress][]*netConn),
@@ -138,7 +133,7 @@ func NewNetworkTransportWithLogger(
 	stream StreamLayer,
 	maxPool int,
 	timeout time.Duration,
-	logger hclog.Logger,
+	logger Logger,
 ) *NetworkTransport {
 	config := &NetworkTransportConfig{Stream: stream, MaxPool: maxPool, Timeout: timeout, Logger: logger}
 	return NewNetworkTransportWithConfig(config)
@@ -157,11 +152,7 @@ func NewNetworkTransport(
 	if logOutput == nil {
 		logOutput = os.Stderr
 	}
-	logger := hclog.New(&hclog.LoggerOptions{
-		Name:   "mcast-net",
-		Output: logOutput,
-		Level:  hclog.DefaultLevel,
-	})
+	logger := &DefaultLogger{}
 	config := &NetworkTransportConfig{
 		Stream:  stream,
 		MaxPool: maxPool,
@@ -194,7 +185,7 @@ func (n *NetworkTransport) listen() {
 			}
 
 			if !n.IsShutdown() {
-				n.logger.Error("failed to accept connect", "error", err)
+				n.logger.Error("failed to accept connect. %v", err)
 			}
 
 			// Wait again to proceed
@@ -207,7 +198,7 @@ func (n *NetworkTransport) listen() {
 		}
 
 		loopDelay = 0
-		n.logger.Debug("accepted connection", "local-address", n.LocalAddress(), "remote-address", conn.RemoteAddr().String())
+		n.logger.Debug("accepted connection with local-address %s and remote-address %s", n.LocalAddress(), conn.RemoteAddr().String())
 		go n.handleConn(n.getStreamContext(), conn)
 	}
 }
@@ -249,13 +240,13 @@ func (n *NetworkTransport) handleConn(ctx context.Context, conn net.Conn) {
 
 		if err := n.handleCommand(r, dec, enc); err != nil {
 			if err != io.EOF {
-				n.logger.Error("failed to decode incoming command", "error", err)
+				n.logger.Error("failed to decode incoming command. %v", err)
 			}
 			return
 		}
 
 		if err := w.Flush(); err != nil {
-			n.logger.Error("failed to flush response", "error", err)
+			n.logger.Error("failed to flush response. %v", err)
 			return
 		}
 	}
@@ -364,7 +355,7 @@ func (n *NetworkTransport) getAddressOrFallback(id ServerID, target ServerAddres
 		if err == nil {
 			return actual
 		}
-		n.logger.Warn("unable to get address for server, using fallback", "id", id, "fallback", target, "error", err)
+		n.logger.Warn("unable to get address for server, using fallback. id: %s, fallback %s. error: %v", id, target, err)
 	}
 	return target
 }

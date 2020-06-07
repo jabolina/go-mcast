@@ -2,7 +2,6 @@ package mcast
 
 import (
 	"errors"
-	"github.com/hashicorp/go-hclog"
 	"io"
 	"net"
 	"time"
@@ -42,7 +41,7 @@ func NewTCPTransportWithLogger(
 	advertise net.Addr,
 	maxPool int,
 	timeout time.Duration,
-	logger hclog.Logger,
+	logger Logger,
 ) (*NetworkTransport, error) {
 	return newTCPTransport(bindAddr, advertise, func(stream StreamLayer) *NetworkTransport {
 		return NewNetworkTransportWithLogger(stream, maxPool, timeout, logger)

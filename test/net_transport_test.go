@@ -3,6 +3,7 @@ package test
 import (
 	"go-mcast/internal/remote"
 	"go-mcast/pkg/mcast"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -19,7 +20,7 @@ func (t *testAddressResolver) Resolve(id mcast.ServerID) (mcast.ServerAddress, e
 
 // Create a new TCP network transport and closes the connection
 func TestNetworkTransport_StartStop(t *testing.T) {
-	trans, err := mcast.NewTCPTransportWithLogger("127.0.0.1:0", nil, 2, time.Second, newTestLogger(t))
+	trans, err := mcast.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, os.Stdout)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestNetworkTransport_StartStop(t *testing.T) {
 }
 
 func TestNetworkTransport_PooledConn(t *testing.T) {
-	consumer, err := mcast.NewTCPTransportWithLogger("127.0.0.1:0", nil, 2, time.Second, newTestLogger(t))
+	consumer, err := mcast.NewTCPTransport("127.0.0.1:0", nil, 2, time.Second, os.Stdout)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestNetworkTransport_PooledConn(t *testing.T) {
 		}
 	}()
 
-	producer, err := mcast.NewTCPTransportWithLogger("127.0.0.1:0", nil, 3, time.Second, newTestLogger(t))
+	producer, err := mcast.NewTCPTransport("127.0.0.1:0", nil, 3, time.Second, os.Stdout)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

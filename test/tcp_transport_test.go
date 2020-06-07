@@ -3,12 +3,13 @@ package test
 import (
 	"go-mcast/pkg/mcast"
 	"net"
+	"os"
 	"testing"
 )
 
 // Fails with advertisable address
 func TestTCPTransport_BadAddress(t *testing.T) {
-	_, err := mcast.NewTCPTransportWithLogger("0.0.0.0:0", nil, 1, 0, newTestLogger(t))
+	_, err := mcast.NewTCPTransport("0.0.0.0:0", nil, 1, 0, os.Stdout)
 	if err != mcast.ErrorNotAdvertiseAddress {
 		t.Fatalf("err: %v", err)
 	}
@@ -20,7 +21,7 @@ func TestTCPTransport_WithAdvertiseAddress(t *testing.T) {
 		IP:   []byte{127, 0, 0, 1},
 		Port: 56700,
 	}
-	trans, err := mcast.NewTCPTransportWithLogger("0.0.0.0:0", addr, 1, 0, newTestLogger(t))
+	trans, err := mcast.NewTCPTransport("0.0.0.0:0", addr, 1, 0, os.Stdout)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
