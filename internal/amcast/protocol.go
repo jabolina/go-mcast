@@ -41,6 +41,9 @@ type Unity struct {
 	// The unity state machine to commit values.
 	sm StateMachine
 
+	// The global clock that can be used to synchronize groups.
+	globalClock mcast.LogicalGlobalClock
+
 	// Store the local unity address.
 	address mcast.ServerAddress
 
