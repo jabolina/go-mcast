@@ -1,8 +1,7 @@
-package amcast
+package test
 
 import (
 	"fmt"
-	"go-mcast/internal/amcast"
 	"go-mcast/pkg/mcast"
 	"sync"
 	"testing"
@@ -12,7 +11,7 @@ import (
 // this test will fail if the generated 128-bit ID have a collision.
 func TestPreviousSet_ConcurrentAdd(t *testing.T) {
 	concurrency := 50
-	set := amcast.NewPreviousSet()
+	set := mcast.NewPreviousSet()
 
 	wg := &sync.WaitGroup{}
 	wg.Add(concurrency)
@@ -38,7 +37,7 @@ func TestPreviousSet_ConcurrentAdd(t *testing.T) {
 }
 
 func TestPreviousSet_ShouldConflict(t *testing.T) {
-	set := amcast.NewPreviousSet()
+	set := mcast.NewPreviousSet()
 	uid := mcast.UID(mcast.GenerateUID())
 	address1 := mcast.ServerAddress("127.0.0.1:8080")
 	address2 := mcast.ServerAddress("127.0.0.1:8081")
@@ -55,7 +54,7 @@ func TestPreviousSet_ShouldConflict(t *testing.T) {
 }
 
 func TestPreviousSet_ShouldNotConflict(t *testing.T) {
-	set := amcast.NewPreviousSet()
+	set := mcast.NewPreviousSet()
 	address1 := mcast.ServerAddress("127.0.0.1:8080")
 	address2 := mcast.ServerAddress("127.0.0.1:8081")
 	destinations1 := []mcast.ServerAddress{

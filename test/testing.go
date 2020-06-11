@@ -1,6 +1,8 @@
 package test
 
-import "go-mcast/pkg/mcast"
+import (
+	"go-mcast/pkg/mcast"
+)
 
 func InMemoryConfig() *mcast.BaseConfiguration {
 	return &mcast.BaseConfiguration{

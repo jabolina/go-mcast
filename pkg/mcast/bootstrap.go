@@ -1,21 +1,17 @@
-package amcast
-
-import (
-	"go-mcast/pkg/mcast"
-)
+package mcast
 
 // Bootstrap the group transports for the given configurations.
 // This will create a transport for each peer present on the ClusterConfiguration.
-func BootstrapGroup(base *mcast.BaseConfiguration, cluster *mcast.ClusterConfiguration) (*GroupState, error) {
+func BootstrapGroup(base *BaseConfiguration, cluster *ClusterConfiguration) (*GroupState, error) {
 	var nodes []NodeState
 	for _, server := range cluster.Servers {
-		config := &mcast.NetworkTransportConfig{
+		config := &NetworkTransportConfig{
 			ServerAddressResolver: cluster.TransportConfiguration.Resolver,
 			Logger:                base.Logger,
 			MaxPool:               int(cluster.TransportConfiguration.PoolSize),
 			Timeout:               cluster.TransportConfiguration.Timeout,
 		}
-		trans, err := mcast.NewTCPTransportWithConfig(string(server.Address), cluster.TransportConfiguration.UseAdvertiseAddress, config)
+		trans, err := NewTCPTransportWithConfig(string(server.Address), cluster.TransportConfiguration.UseAdvertiseAddress, config)
 		if err != nil {
 			return nil, err
 		}

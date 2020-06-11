@@ -1,7 +1,6 @@
-package amcast
+package mcast
 
 import (
-	"go-mcast/pkg/mcast"
 	"hash/fnv"
 	"math"
 	"math/rand"
@@ -12,7 +11,7 @@ import (
 // Holds information about older messages.
 type PreviousSet struct {
 	mutex  sync.Mutex
-	values map[uint64]mcast.UID
+	values map[uint64]UID
 	size   uint64
 	p      uint64
 	a      uint64
@@ -23,11 +22,11 @@ type PreviousSet struct {
 // conflicts with any other identifier on the previous set, is used to order the
 // requests, used for clock changes and for the delivery process.
 type ConflictRelationship interface {
-	Conflicts(id mcast.ServerID) bool
+	Conflicts(id ServerID) bool
 }
 
 // Using a universal hash function, hashes the received UID.
-func (h *PreviousSet) hash(destinations []mcast.ServerAddress) uint64 {
+func (h *PreviousSet) hash(destinations []ServerAddress) uint64 {
 	hasher := fnv.New64()
 	for _, v := range destinations {
 		_, err := hasher.Write([]byte(v))
@@ -45,21 +44,21 @@ func (h *PreviousSet) hash(destinations []mcast.ServerAddress) uint64 {
 // if the hash generated from the message destination collides, that will indicate that
 // the messages conflicts, since exists another request for the same region being
 // processed.
-func (ps *PreviousSet) Conflicts(id []mcast.ServerAddress) bool {
+func (ps *PreviousSet) Conflicts(id []ServerAddress) bool {
 	code := ps.hash(id)
 	_, ok := ps.values[code]
 	return ok
 }
 
 // Add a new message into the previous set
-func (ps *PreviousSet) Add(destination []mcast.ServerAddress, uid mcast.UID) {
+func (ps *PreviousSet) Add(destination []ServerAddress, uid UID) {
 	ps.mutex.Lock()
 	defer ps.mutex.Unlock()
 	ps.values[ps.hash(destination)] = uid
 }
 
 // Return the values present on the set on the time of the read.
-func (ps *PreviousSet) Values() map[uint64]mcast.UID {
+func (ps *PreviousSet) Values() map[uint64]UID {
 	ps.mutex.Lock()
 	values := ps.values
 	ps.mutex.Unlock()
@@ -75,7 +74,7 @@ func (ps *PreviousSet) Clear() {
 		delete(ps.values, k)
 	}
 
-	ps.values = make(map[uint64]mcast.UID)
+	ps.values = make(map[uint64]UID)
 }
 
 // Creates a new PreviousSet
@@ -87,7 +86,7 @@ func NewPreviousSet() *PreviousSet {
 
 	return &PreviousSet{
 		mutex:  sync.Mutex{},
-		values: make(map[uint64]mcast.UID),
+		values: make(map[uint64]UID),
 		size:   uint64(size),
 		p:      p,
 		a:      a,

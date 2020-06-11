@@ -1,7 +1,6 @@
-package amcast
+package mcast
 
 import (
-	"go-mcast/pkg/mcast"
 	"sync"
 	"sync/atomic"
 )
@@ -32,10 +31,10 @@ func (clk *LogicalClock) Leap(to uint64) {
 // be kept inside a group on nodes.
 type NodeState struct {
 	// Holds the information about the peer server.
-	Server mcast.Server
+	Server Server
 
 	// This peer transport for communication
-	Trans mcast.Transport
+	Trans Transport
 }
 
 // A group provides a interface to work like a single unity but will

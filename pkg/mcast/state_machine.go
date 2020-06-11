@@ -1,7 +1,6 @@
-package amcast
+package mcast
 
 import (
-	"go-mcast/internal/remote"
 	"io"
 )
 
@@ -9,7 +8,7 @@ import (
 // to use the replicated value across replicas.
 type StateMachine interface {
 	// Commit the given entry into the state machine, turning it available for all clients.
-	Commit(*remote.Entry) interface{}
+	Commit(*Entry) interface{}
 
 	// Restores the state machine back to a given a state.
 	Restore(closer io.ReadCloser) error

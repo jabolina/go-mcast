@@ -1,9 +1,5 @@
 package mcast
 
-import (
-	"go-mcast/internal/remote"
-)
-
 // RPCHeader is common sub-structure between request to pass common
 // needed information about functionalities.
 type RPCHeader struct {
@@ -29,7 +25,7 @@ type GMCastRequest struct {
 	UID UID
 
 	// The message payload to be replicated
-	Body remote.Message
+	Body Message
 
 	// Addresses to send the request
 	Destination []Server
@@ -53,7 +49,7 @@ type ComputeRequest struct {
 	UID
 
 	// State needed for the message computation.
-	State remote.MessageState
+	State MessageState
 
 	// Request timestamp
 	Timestamp uint64
@@ -73,7 +69,7 @@ type ComputeResponse struct {
 	Timestamp uint64
 
 	// New state for the processed request.
-	State remote.MessageState
+	State MessageState
 }
 
 // When a message is destined to more than one destination group,
@@ -85,7 +81,7 @@ type GatherRequest struct {
 	UID
 
 	// State used to process the gather request.
-	State remote.MessageState
+	State MessageState
 
 	// Timestamp for the group, this will be exchanged with other remote servers.
 	Timestamp uint64
@@ -102,7 +98,7 @@ type GatherResponse struct {
 	UID
 
 	// State after the message was processed.
-	State remote.MessageState
+	State MessageState
 
 	// The final timestamp agreed between all groups. This will
 	// be the final timestamp and now all groups will be synchronized.
