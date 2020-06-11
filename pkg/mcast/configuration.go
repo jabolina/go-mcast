@@ -93,11 +93,12 @@ func DefaultBaseConfiguration() *BaseConfiguration {
 // Create a configuration for transport using the default values.
 // For default will not be used the advertise address, will be
 // pooled 3 connections and the transport timeout is 5 seconds.
-func DefaultTransportConfiguration() *TransportConfiguration {
+func DefaultTransportConfiguration(resolver ServerAddressResolver) *TransportConfiguration {
 	return &TransportConfiguration{
 		UseAdvertiseAddress: nil,
 		PoolSize:            3,
 		Timeout:             5 * time.Second,
+		Resolver:            resolver,
 	}
 }
 

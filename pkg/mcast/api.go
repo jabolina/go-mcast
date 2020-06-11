@@ -1,6 +1,6 @@
 package mcast
 
-func NewAtomicMulticast(base *BaseConfiguration, cluster *ClusterConfiguration, storage *Storage, clock *LogicalGlobalClock) (*struct{}, error) {
+func NewAtomicMulticast(base *BaseConfiguration, cluster *ClusterConfiguration, storage Storage, clock LogicalGlobalClock) (*Unity, error) {
 	if err := ValidateBaseConfiguration(base); err != nil {
 		return nil, err
 	}
@@ -17,5 +17,10 @@ func NewAtomicMulticast(base *BaseConfiguration, cluster *ClusterConfiguration, 
 		base.Logger = NewDefaultLogger()
 	}
 
-	return nil, nil
+	unity, err := NewUnity(base, cluster, storage, clock)
+	if err != nil {
+		return nil, err
+	}
+
+	return unity, nil
 }

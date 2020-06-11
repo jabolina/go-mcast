@@ -64,7 +64,7 @@ type Unity struct {
 	off poweroff
 }
 
-func NewUnity(base *BaseConfiguration, cluster *ClusterConfiguration, storage *Storage, clock *LogicalGlobalClock) (*Unity, error) {
+func NewUnity(base *BaseConfiguration, cluster *ClusterConfiguration, storage Storage, clock LogicalGlobalClock) (*Unity, error) {
 	state, err := BootstrapGroup(base, cluster)
 	if err != nil {
 		return nil, err
@@ -88,10 +88,10 @@ func NewUnity(base *BaseConfiguration, cluster *ClusterConfiguration, storage *S
 		previousSet:   NewPreviousSet(),
 		configuration: base,
 		sm:            nil,
-		clock:         *clock,
+		clock:         clock,
 		channel:       nil,
 		trans:         node.Trans,
-		storage:       *storage,
+		storage:       storage,
 		off:           off,
 	}
 

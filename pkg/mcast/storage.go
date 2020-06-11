@@ -16,7 +16,7 @@ type Storage interface {
 // with this implementation. Is up to the user to use its desired storage.
 type InMemoryStorage struct {
 	// Mutex for operations executions
-	mutex sync.Mutex
+	mutex *sync.Mutex
 
 	// The in-memory storage
 	kv map[string][]byte
@@ -45,7 +45,7 @@ func (s *InMemoryStorage) Get(key []byte) ([]byte, error) {
 // Create a new storage using memory only.
 func NewInMemoryStorage() *InMemoryStorage {
 	return &InMemoryStorage{
-		mutex: sync.Mutex{},
+		mutex: &sync.Mutex{},
 		kv:    make(map[string][]byte),
 	}
 }

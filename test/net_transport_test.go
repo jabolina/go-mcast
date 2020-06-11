@@ -9,20 +9,12 @@ import (
 	"time"
 )
 
-type testAddressResolver struct {
-	addr string
-}
-
-func (t *testAddressResolver) Resolve(id mcast.ServerID) (mcast.ServerAddress, error) {
-	return mcast.ServerAddress(t.addr), nil
-}
-
 func makeTransport(useAddrProvider bool, address string) (*mcast.NetworkTransport, error) {
 	if useAddrProvider {
 		config := &mcast.NetworkTransportConfig{
 			MaxPool:               2,
 			Timeout:               time.Second,
-			ServerAddressResolver: &testAddressResolver{addr: address},
+			ServerAddressResolver: &TestAddressResolver{},
 		}
 		return mcast.NewTCPTransportWithConfig("127.0.0.1:0", nil, config)
 	}
@@ -92,7 +84,7 @@ func TestNetworkTransport_PooledConn(t *testing.T) {
 	gmcast := func() {
 		defer wg.Done()
 		var out mcast.GMCastResponse
-		if err := producer.GMCast("id1", consumer.LocalAddress(), &args, &out); err != nil {
+		if err := producer.GMCast(mcast.ServerID(consumer.LocalAddress()), consumer.LocalAddress(), &args, &out); err != nil {
 			t.Fatalf("err: %v", err)
 		}
 
@@ -152,7 +144,7 @@ func TestNetworkTransport_GMCastRequest(t *testing.T) {
 		defer producer.Close()
 
 		var recv mcast.GMCastResponse
-		if err := producer.GMCast("id1", consumer.LocalAddress(), &req, &recv); err != nil {
+		if err := producer.GMCast(mcast.ServerID(consumer.LocalAddress()), consumer.LocalAddress(), &req, &recv); err != nil {
 			t.Fatalf("error receiving on producer. %v", err)
 		}
 
@@ -201,7 +193,7 @@ func TestNetworkTransport_ComputeRequest(t *testing.T) {
 		defer producer.Close()
 
 		var recv mcast.ComputeResponse
-		if err := producer.Compute("id1", consumer.LocalAddress(), &req, &recv); err != nil {
+		if err := producer.Compute(mcast.ServerID(consumer.LocalAddress()), consumer.LocalAddress(), &req, &recv); err != nil {
 			t.Fatalf("error receiving on producer. %v", err)
 		}
 
@@ -250,7 +242,7 @@ func TestNetworkTransport_GatherRequest(t *testing.T) {
 		defer producer.Close()
 
 		var recv mcast.GatherResponse
-		if err := producer.Gather("id1", consumer.LocalAddress(), &req, &recv); err != nil {
+		if err := producer.Gather(mcast.ServerID(consumer.LocalAddress()), consumer.LocalAddress(), &req, &recv); err != nil {
 			t.Fatalf("error receiving on producer. %v", err)
 		}
 
