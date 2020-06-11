@@ -481,6 +481,7 @@ func (n *NetworkTransport) Close() error {
 		n.shutdown = true
 	}
 
+	n.logger.Infof("shutting down peer at %s", n.LocalAddress())
 	return nil
 }
 

@@ -25,9 +25,15 @@ func TestProtocol_BootstrapUnity(t *testing.T) {
 	storage := mcast.NewInMemoryStorage()
 	clock := &mcast.LogicalClock{}
 
-	_, err := mcast.NewAtomicMulticast(base, clusterConfiguration, storage, clock)
+	unity, err := mcast.NewAtomicMulticast(base, clusterConfiguration, storage, clock)
 	if err != nil {
 		t.Fatalf("failed creating unity. %v", err)
+	}
+
+	future := unity.Shutdown()
+
+	if err := future.Error(); err != nil {
+		t.Fatalf("failed on shutdown %v", err)
 	}
 
 }

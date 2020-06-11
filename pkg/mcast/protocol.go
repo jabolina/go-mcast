@@ -95,6 +95,8 @@ func NewUnity(base *BaseConfiguration, cluster *ClusterConfiguration, storage St
 		off:           off,
 	}
 
+	unity.state.emit(unity.run)
+
 	return unity, nil
 }
 
@@ -376,6 +378,20 @@ func (u *Unity) processGather(rpc RPC, r *GatherRequest) {
 // How many local nodes must reply to quorum is obtained.
 func (u *Unity) unityQuorum() int {
 	return len(u.state.Nodes)/2 + 1
+}
+
+// Shutdown all current spawned goroutines and returns
+// a blocking future to wait for the complete shutdown.
+func (u *Unity) Shutdown() Future {
+	u.off.mutex.Lock()
+	defer u.off.mutex.Unlock()
+
+	if !u.off.shutdown {
+		close(u.off.ch)
+		u.off.shutdown = true
+		return &ShutdownFuture{unity: u}
+	}
+	return &ShutdownFuture{unity: nil}
 }
 
 func max(values []uint64) uint64 {
