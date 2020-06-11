@@ -28,7 +28,7 @@ func TestLogicalClock_GroupTick(t *testing.T) {
 		t.Fatalf("failed on concurrent increment %d: %d", concurrentMembers, clk.Tock())
 	}
 
-	clk.Defines(0)
+	clk.Leap(0)
 	if clk.Tock() != 0 {
 		t.Fatalf("failed on define: %d", clk.Tock())
 	}

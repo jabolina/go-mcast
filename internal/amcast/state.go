@@ -6,25 +6,6 @@ import (
 	"sync/atomic"
 )
 
-// Represents the status of the protocol node.
-// The protocol itself does not require nodes states explicitly, but we will
-// use to denote states as a helper.
-type State uint8
-
-const (
-	// The node did not started yet.
-	Off State = iota
-
-	// The node is up and running.
-	On
-
-	// The node was requested to shutdown and not done yet.
-	Shutting
-
-	// The node was requested to be turned off and is off.
-	Shutdown
-)
-
 // A logical clock to provide the timestamp for the process group.
 // Using atomic operations for thread safety amongst group members access.
 type LogicalClock struct {
@@ -43,7 +24,7 @@ func (clk *LogicalClock) Tock() uint64 {
 }
 
 // Atomically defines the value for the new one.
-func (clk *LogicalClock) Defines(to uint64) {
+func (clk *LogicalClock) Leap(to uint64) {
 	atomic.SwapUint64(&clk.index, to)
 }
 
@@ -53,8 +34,8 @@ type NodeState struct {
 	// Holds the information about the peer server.
 	Server mcast.Server
 
-	// Defines which role the node should play.
-	Role State
+	// This peer transport for communication
+	Trans mcast.Transport
 }
 
 // A group provides a interface to work like a single unity but will
@@ -67,7 +48,7 @@ type GroupState struct {
 	Clk LogicalClock
 
 	// Used to track spawned go routines.
-	group sync.WaitGroup
+	group *sync.WaitGroup
 }
 
 // Spawn a new goroutine and controls it with the wait group.

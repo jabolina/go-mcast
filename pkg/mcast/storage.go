@@ -41,3 +41,11 @@ func (s *InMemoryStorage) Get(key []byte) ([]byte, error) {
 	}
 	return value, nil
 }
+
+// Create a new storage using memory only.
+func NewInMemoryStorage() *InMemoryStorage {
+	return &InMemoryStorage{
+		mutex: sync.Mutex{},
+		kv:    make(map[string][]byte),
+	}
+}

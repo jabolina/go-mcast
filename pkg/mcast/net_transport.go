@@ -434,6 +434,22 @@ func (n *NetworkTransport) IsShutdown() bool {
 	}
 }
 
+// Implements the Transport interface.
+func (n *NetworkTransport) LocalAddr() ServerAddress {
+	return ServerAddress(n.stream.Addr().String())
+}
+
+// Implements the Transport interface.
+func (n *NetworkTransport) EncodePeer(id ServerID, peer ServerAddress) []byte {
+	address := n.getAddressOrFallback(id, peer)
+	return []byte(address)
+}
+
+// Implements the Transport interface.
+func (n *NetworkTransport) DecodePeer(bytes []byte) ServerAddress {
+	return ServerAddress(bytes)
+}
+
 // LocalAddress implements Transport interface.
 func (n *NetworkTransport) LocalAddress() ServerAddress {
 	return ServerAddress(n.stream.Addr().String())

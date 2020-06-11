@@ -3,10 +3,10 @@ package amcast
 import (
 	"errors"
 	"fmt"
-	"github.com/hashicorp/go-hclog"
 	"go-mcast/internal/remote"
 	"go-mcast/pkg/mcast"
 	"sync"
+	"time"
 )
 
 var (
@@ -19,7 +19,13 @@ var (
 type poweroff struct {
 	shutdown bool
 	ch       chan struct{}
-	mutex    sync.Mutex
+	mutex    *sync.Mutex
+}
+
+// Holds information for management
+type context struct {
+	started bool
+	mutex   *sync.Mutex
 }
 
 // Unity is a group
@@ -27,25 +33,25 @@ type Unity struct {
 	// Local peer id
 	id mcast.ServerID
 
+	// Unity context information
+	context context
+
 	// Hold information for the group, the group acts like a unity.
 	// The unity *must* have a majority of non-faulty members.
-	state GroupState
+	state *GroupState
 
 	// PreviousSet is the protocol needed for conflict evaluation.
-	previousSet PreviousSet
+	previousSet *PreviousSet
 
 	// Holds configuration about the unity. About the local group name,
 	// logger utilities, protocol version, etc.
-	configuration mcast.Config
+	configuration *mcast.BaseConfiguration
 
 	// The unity state machine to commit values.
 	sm StateMachine
 
 	// The global clock that can be used to synchronize groups.
-	globalClock mcast.LogicalGlobalClock
-
-	// Store the local unity address.
-	address mcast.ServerAddress
+	clock mcast.LogicalGlobalClock
 
 	// Provided from the transport
 	channel <-chan mcast.RPC
@@ -58,6 +64,40 @@ type Unity struct {
 
 	// Shutdown channel to exit, protected to prevent concurrent exits.
 	off poweroff
+}
+
+func NewUnity(base *mcast.BaseConfiguration, cluster *mcast.ClusterConfiguration, storage *mcast.Storage, clock *mcast.LogicalGlobalClock) (*Unity, error) {
+	state, err := BootstrapGroup(base, cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	node := state.Nodes[0]
+	ctx := context{
+		started: false,
+		mutex:   &sync.Mutex{},
+	}
+	off := poweroff{
+		shutdown: false,
+		ch:       make(chan struct{}),
+		mutex:    &sync.Mutex{},
+	}
+	state.group = &sync.WaitGroup{}
+	unity := &Unity{
+		id:            node.Server.ID,
+		context:       ctx,
+		state:         state,
+		previousSet:   NewPreviousSet(),
+		configuration: base,
+		sm:            nil,
+		clock:         *clock,
+		channel:       nil,
+		trans:         node.Trans,
+		storage:       *storage,
+		off:           off,
+	}
+
+	return unity, nil
 }
 
 // Creates an RPC header to be sent across RPC requests.
@@ -94,13 +134,18 @@ func (u *Unity) run() {
 			return
 		default:
 		}
+
+		if !u.context.started && !u.off.shutdown {
+			u.context.started = true
+			u.poll()
+		}
 	}
 }
 
 func (u *Unity) poll() {
 	// Handle clean up when the node gives up and shutdown
 	defer func() {
-		u.configuration.Logger.Info("shutdown process", "id", u.id)
+		u.configuration.Logger.Infof("shutdown process %s", u.id)
 	}()
 
 	for !u.off.shutdown {
@@ -124,7 +169,7 @@ func (u *Unity) process(rpc mcast.RPC) {
 	case *mcast.GMCastRequest:
 		u.processGMCast(rpc, cmd)
 	default:
-		u.configuration.Logger.Error("unexpected command", "command", hclog.Fmt("%#v", rpc.Command))
+		u.configuration.Logger.Errorf("unexpected command: %#v", rpc.Command)
 	}
 }
 
@@ -144,6 +189,7 @@ func (u *Unity) processGMCast(rpc mcast.RPC, r *mcast.GMCastRequest) {
 	computeChannel := u.handleGMCast(r, r.Body)
 	quorum := u.unityQuorum()
 	votes := 0
+	done := false
 
 	computedTimestamps := make([]uint64, 0)
 
@@ -153,28 +199,30 @@ func (u *Unity) processGMCast(rpc mcast.RPC, r *mcast.GMCastRequest) {
 
 	case computed := <-computeChannel:
 		votes++
-
-		switch computed.State {
-		case remote.S1:
-		case remote.S2:
-			// There is more than one process group on the destination, need to execute
-			// a gather request to exchange the timestamp between groups.
-			computedTimestamps = append(computedTimestamps, computed.Timestamp)
-			if votes >= quorum {
-				tsm := max(computedTimestamps)
-				gatherReq := &mcast.GatherRequest{
-					RPCHeader: u.getRPCHeader(),
-					UID:       r.UID,
-					State:     computed.State,
-					Timestamp: tsm,
+		if votes >= quorum && !done {
+			done = true
+			switch computed.State {
+			case remote.S1:
+			case remote.S2:
+				// There is more than one process group on the destination, need to execute
+				// a gather request to exchange the timestamp between groups.
+				computedTimestamps = append(computedTimestamps, computed.Timestamp)
+				if votes >= quorum {
+					tsm := max(computedTimestamps)
+					gatherReq := &mcast.GatherRequest{
+						RPCHeader: u.getRPCHeader(),
+						UID:       r.UID,
+						State:     computed.State,
+						Timestamp: tsm,
+					}
+					sequenceNumber := u.emitGather(gatherReq)
+					u.configuration.Logger.Infof("sequence number is %ld", sequenceNumber)
 				}
-				u.configuration.Logger.Info("gathering now", "req", gatherReq)
-				// send the gather request and return.
+			case remote.S3:
+				// Ready to be committed into the state machine.
+			default:
+				u.configuration.Logger.Error("unknown compute response state %#v", computed)
 			}
-		case remote.S3:
-			// Ready to be committed into the state machine.
-		default:
-			u.configuration.Logger.Error("unknown compute response state", "computed", computed)
 		}
 	}
 
@@ -198,7 +246,7 @@ func (u *Unity) handleGMCast(r *mcast.GMCastRequest, message remote.Message) <-c
 			res := &mcast.ComputeResponse{}
 			err := u.trans.Compute(peer.ID, peer.Address, req, res)
 			if err != nil {
-				u.configuration.Logger.Error("failed on compute RPC", "target", peer, "error", err)
+				u.configuration.Logger.Errorf("failed on compute RPC to target %#v. error %v", peer, err)
 				res.State = remote.S0
 			}
 			channel <- res
@@ -206,14 +254,46 @@ func (u *Unity) handleGMCast(r *mcast.GMCastRequest, message remote.Message) <-c
 	}
 
 	for _, node := range u.state.Nodes {
-		if node.Server.ID == u.id {
-			// handle computation locally
-		} else {
-			ask(node.Server)
-		}
+		// Is possible to avoid this call if the target
+		// node id is the same as the local id, and just process
+		// the request locally. Is the best option?
+		ask(node.Server)
 	}
 
 	return channel
+}
+
+func (u *Unity) emitGather(req *mcast.GatherRequest) uint64 {
+	channel := make(chan *mcast.GatherResponse, len(req.Destination))
+	emit := func(peer mcast.Server) {
+		u.state.emit(func() {
+			res := new(mcast.GatherResponse)
+			err := u.trans.Gather(peer.ID, peer.Address, req, res)
+			if err != nil {
+				u.configuration.Logger.Errorf("failed to gather to target %v. error %v", peer, err)
+			}
+			channel <- res
+		})
+	}
+
+	received := 0
+	var tsm uint64
+	select {
+	case res := <-channel:
+		received++
+		if received == len(req.Destination) {
+			tsm = res.Timestamp
+		}
+	case <-time.After(5 * time.Second):
+		// fixme: returns error on timeout
+		panic("timeout gathering")
+	}
+
+	for _, destination := range req.Destination {
+		emit(destination)
+	}
+
+	return tsm
 }
 
 // Process Compute requests, after the messages is broadcast to the process groups.
@@ -239,12 +319,16 @@ func (u *Unity) processCompute(rpc mcast.RPC, r *mcast.ComputeRequest) {
 	}()
 
 	if r.State == remote.S0 {
-		if u.previousSet.Conflicts(r.Destination) {
+		var addresses []mcast.ServerAddress
+		for _, v := range r.Destination {
+			addresses = append(addresses, v.Address)
+		}
+		if u.previousSet.Conflicts(addresses) {
 			u.state.Clk.Tick()
 			u.previousSet.Clear()
 		}
 		r.Timestamp = u.state.Clk.Tock()
-		u.previousSet.Add(r.Destination, r.UID)
+		u.previousSet.Add(addresses, r.UID)
 	}
 
 	if len(r.Destination) > 1 {
@@ -257,7 +341,7 @@ func (u *Unity) processCompute(rpc mcast.RPC, r *mcast.ComputeRequest) {
 		} else if r.State == remote.S2 {
 			res.State = remote.S3
 			if r.Timestamp > u.state.Clk.Tock() {
-				u.state.Clk.Defines(r.Timestamp)
+				u.state.Clk.Leap(r.Timestamp)
 				u.previousSet.Clear()
 			}
 			res.Timestamp = u.state.Clk.Tock()
@@ -283,10 +367,10 @@ func (u *Unity) processGather(rpc mcast.RPC, r *mcast.GatherRequest) {
 	}
 	defer rpc.Respond(res, nil)
 
-	if r.Timestamp >= u.state.Clk.Tock() {
+	if r.Timestamp >= u.clock.Tock() {
 		res.State = remote.S3
 	} else {
-		res.Timestamp = u.state.Clk.Tock()
+		res.Timestamp = u.clock.Tock()
 		res.State = remote.S2
 	}
 }

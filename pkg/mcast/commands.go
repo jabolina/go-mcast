@@ -32,7 +32,7 @@ type GMCastRequest struct {
 	Body remote.Message
 
 	// Addresses to send the request
-	Destination []ServerAddress
+	Destination []Server
 }
 
 // Response for the GMCastRequest
@@ -59,7 +59,7 @@ type ComputeRequest struct {
 	Timestamp uint64
 
 	// Addresses to send the request
-	Destination []ServerAddress
+	Destination []Server
 }
 
 // After a peer computes its timestamp this will be used to answer.
@@ -89,6 +89,9 @@ type GatherRequest struct {
 
 	// Timestamp for the group, this will be exchanged with other remote servers.
 	Timestamp uint64
+
+	// Addresses to send the request
+	Destination []Server
 }
 
 // Response after the timestamp was exchanged, contains the final
