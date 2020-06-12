@@ -105,7 +105,19 @@ type GatherResponse struct {
 	Timestamp uint64
 }
 
+func (req *GMCastRequest) GetRPCHeader() RPCHeader {
+	return req.RPCHeader
+}
+
 // Get the GM-Cast response RPC header information
 func (res *GMCastResponse) GetRPCHeader() RPCHeader {
 	return res.RPCHeader
+}
+
+func (c *ComputeRequest) GetRPCHeader() RPCHeader {
+	return c.RPCHeader
+}
+
+func (g *GatherRequest) GetRPCHeader() RPCHeader {
+	return g.RPCHeader
 }

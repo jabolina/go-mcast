@@ -1,9 +1,16 @@
 package mcast
 
+import "sync"
+
 // Bootstrap the group transports for the given configurations.
 // This will create a transport for each peer present on the ClusterConfiguration.
-func BootstrapGroup(base *BaseConfiguration, cluster *ClusterConfiguration) (*GroupState, error) {
-	var nodes []NodeState
+func BootstrapGroup(base *BaseConfiguration, cluster *ClusterConfiguration, unity *Unity) (*GroupState, error) {
+	state := &GroupState{
+		Clk:   LogicalClock{},
+		group: &sync.WaitGroup{},
+		mutex: &sync.Mutex{},
+	}
+	var nodes []*Peer
 	for _, server := range cluster.Servers {
 		config := &NetworkTransportConfig{
 			ServerAddressResolver: cluster.TransportConfiguration.Resolver,
@@ -15,15 +22,10 @@ func BootstrapGroup(base *BaseConfiguration, cluster *ClusterConfiguration) (*Gr
 		if err != nil {
 			return nil, err
 		}
-		node := NodeState{
-			Server: server,
-			Trans:  trans,
-		}
-		nodes = append(nodes, node)
+
+		nodes = append(nodes, NewPeer(server, trans, state, unity))
 	}
 
-	return &GroupState{
-		Nodes: nodes,
-		Clk:   LogicalClock{},
-	}, nil
+	state.Nodes = nodes
+	return state, nil
 }

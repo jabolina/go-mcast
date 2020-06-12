@@ -10,7 +10,7 @@ import (
 
 // Holds information about older messages.
 type PreviousSet struct {
-	mutex  sync.Mutex
+	mutex  *sync.Mutex
 	values map[uint64]UID
 	size   uint64
 	p      uint64
@@ -45,6 +45,8 @@ func (h *PreviousSet) hash(destinations []ServerAddress) uint64 {
 // the messages conflicts, since exists another request for the same region being
 // processed.
 func (ps *PreviousSet) Conflicts(id []ServerAddress) bool {
+	ps.mutex.Lock()
+	defer ps.mutex.Unlock()
 	code := ps.hash(id)
 	_, ok := ps.values[code]
 	return ok
@@ -85,7 +87,7 @@ func NewPreviousSet() *PreviousSet {
 	p, a, b := generatePrimes(generator, size)
 
 	return &PreviousSet{
-		mutex:  sync.Mutex{},
+		mutex:  &sync.Mutex{},
 		values: make(map[uint64]UID),
 		size:   uint64(size),
 		p:      p,

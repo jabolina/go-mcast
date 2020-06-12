@@ -31,6 +31,9 @@ type Logger interface {
 
 	Panic(v ...interface{})
 	Panicf(format string, v ...interface{})
+
+	// Toggle debug on/off
+	ToggleDebug(value bool) bool
 }
 
 const (
@@ -95,6 +98,11 @@ func (l *DefaultLogger) Debugf(format string, v ...interface{}) {
 	if l.debug {
 		l.Output(calldepth, level(debug, fmt.Sprintf(format, v...)))
 	}
+}
+
+func (l *DefaultLogger) ToggleDebug(value bool) bool {
+	l.debug = value
+	return l.debug
 }
 
 func (l *DefaultLogger) Fatal(v ...interface{}) {

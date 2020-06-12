@@ -23,7 +23,7 @@ func (s *ShutdownFuture) Response() interface{} {
 	if s.unity == nil {
 		return nil
 	}
-	s.unity.state.group.Wait()
+	s.unity.State.group.Wait()
 	s.Error()
 	return nil
 }
@@ -34,8 +34,8 @@ func (s *ShutdownFuture) Error() error {
 		return nil
 	}
 
-	s.unity.state.group.Wait()
-	for _, peer := range s.unity.state.Nodes {
+	s.unity.State.group.Wait()
+	for _, peer := range s.unity.State.Nodes {
 		if err := peer.Trans.Close(); err != nil {
 			return err
 		}

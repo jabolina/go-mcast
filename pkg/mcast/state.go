@@ -27,27 +27,35 @@ func (clk *LogicalClock) Leap(to uint64) {
 	atomic.SwapUint64(&clk.index, to)
 }
 
-// Holds information about a single node. This node will
-// be kept inside a group on nodes.
-type NodeState struct {
-	// Holds the information about the peer server.
-	Server Server
-
-	// This peer transport for communication
-	Trans Transport
-}
-
 // A group provides a interface to work like a single unity but will
 // actually be handling a group of replicated processes.
 type GroupState struct {
+	// Used for the internal iterator.
+	index int
+
+	// Mutex used for iteration.
+	mutex *sync.Mutex
+
 	// Members of the local group.
-	Nodes []NodeState
+	Nodes []*Peer
 
 	// Clock for the group.
 	Clk LogicalClock
 
 	// Used to track spawned go routines.
 	group *sync.WaitGroup
+}
+
+func (g *GroupState) Next() *Peer {
+	g.mutex.Lock()
+	defer g.mutex.Unlock()
+	inc := g.index + 1
+	if inc >= len(g.Nodes) {
+		inc = 0
+	}
+
+	g.index = inc
+	return g.Nodes[inc]
 }
 
 // Spawn a new goroutine and controls it with the wait group.
