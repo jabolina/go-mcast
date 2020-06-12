@@ -74,7 +74,6 @@ func CreateCluster(clusterSize, unitySize int, t *testing.T) *UnityCluster {
 }
 
 func PoweroffUnity(unity *mcast.Unity, t *testing.T) {
-	t.Log("shutdown unity")
 	future := unity.Shutdown()
 
 	if err := future.Error(); err != nil {

@@ -74,7 +74,11 @@ func (p *Peer) Poll() {
 	}
 }
 
+// Process the current received RPC.
 func (p *Peer) process(rpc RPC) {
+	// Add or update the received RPC into the processing messages.
+
+	p.unity.deliver.Add(rpc)
 	// Verify if the current peer is able to process
 	// the rpc that just arrives.
 	if err := p.unity.checkRPCHeader(rpc); err != nil {
@@ -104,6 +108,7 @@ func (p *Peer) processGMCast(rpc RPC, r *GMCastRequest) {
 
 	var rpcErr error
 	defer func() {
+		p.unity.deliver.Deliver(r.Body.Data, r.Body.Extensions, r.UID, res)
 		p.log.Debugf("sending response back %#v", res)
 		rpc.Respond(res, rpcErr)
 	}()

@@ -35,10 +35,13 @@ type GMCastRequest struct {
 type GMCastResponse struct {
 	RPCHeader
 
-	// The request final timestamp, agreed amongst all replicas
+	// The request final timestamp, agreed amongst all replicas.
 	SequenceNumber uint64
 
-	// The request completed successfully
+	// The content on the state machine.
+	Body Message
+
+	// The request completed successfully.
 	Success bool
 }
 
@@ -51,10 +54,10 @@ type ComputeRequest struct {
 	// State needed for the message computation.
 	State MessageState
 
-	// Request timestamp
+	// Request timestamp.
 	Timestamp uint64
 
-	// Addresses to send the request
+	// Addresses to send the request.
 	Destination []Server
 }
 
@@ -86,7 +89,7 @@ type GatherRequest struct {
 	// Timestamp for the group, this will be exchanged with other remote servers.
 	Timestamp uint64
 
-	// Addresses to send the request
+	// Addresses to send the request.
 	Destination []Server
 }
 

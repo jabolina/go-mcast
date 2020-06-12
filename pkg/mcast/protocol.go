@@ -26,17 +26,14 @@ type Unity struct {
 	// logger utilities, protocol version, etc.
 	configuration *BaseConfiguration
 
-	// The unity state machine to commit values.
-	sm StateMachine
-
 	// The global clock that can be used to synchronize groups.
 	clock LogicalGlobalClock
 
 	// Timeout for requests computation.
 	timeout time.Duration
 
-	// Storage for storing information about the state machine.
-	storage Storage
+	// Handle for committing response into the unity state machine.
+	deliver *Deliver
 
 	// Shutdown channel to exit, protected to prevent concurrent exits.
 	off poweroff
@@ -48,13 +45,13 @@ func NewUnity(base *BaseConfiguration, cluster *ClusterConfiguration, storage St
 		ch:       make(chan bool),
 		mutex:    &sync.Mutex{},
 	}
+	set := NewPreviousSet()
 	unity := &Unity{
-		previousSet:   NewPreviousSet(),
+		previousSet:   set,
 		configuration: base,
 		timeout:       cluster.TransportConfiguration.Timeout,
-		sm:            nil,
+		deliver: 	   NewDeliver(storage, set, base.Logger),
 		clock:         clock,
-		storage:       storage,
 		off:           off,
 	}
 	state, err := BootstrapGroup(base, cluster, unity)

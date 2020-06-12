@@ -22,7 +22,7 @@ type PreviousSet struct {
 // conflicts with any other identifier on the previous set, is used to order the
 // requests, used for clock changes and for the delivery process.
 type ConflictRelationship interface {
-	Conflicts(id ServerID) bool
+	Conflicts(id []ServerAddress) bool
 }
 
 // Using a universal hash function, hashes the received UID.
