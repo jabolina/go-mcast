@@ -9,6 +9,9 @@ var (
 	// Err is returned when an RPC arrives in a version that the current
 	// peer cannot handle.
 	ErrUnsupportedProtocol = errors.New("protocol version not supported")
+
+	// Used when the configured timeout occurs while processing are request.
+	ErrTimeoutProcessing = errors.New("timeout while processing request")
 )
 
 type Peer struct {
@@ -82,9 +85,6 @@ func (p *Peer) Poll() {
 
 // Process the current received RPC.
 func (p *Peer) process(rpc RPC) {
-	// Add or update the received RPC into the processing messages.
-
-	p.unity.deliver.Add(rpc)
 	// Verify if the current peer is able to process
 	// the rpc that just arrives.
 	if err := p.unity.checkRPCHeader(rpc); err != nil {
@@ -106,6 +106,7 @@ func (p *Peer) process(rpc RPC) {
 
 // Will process the received GM-Cast rpc request.
 func (p *Peer) processGMCast(rpc RPC, r *GMCastRequest) {
+	p.unity.deliver.Add(r)
 	res := &GMCastResponse{
 		RPCHeader:      p.unity.GetRPCHeader(),
 		SequenceNumber: p.State.Clk.Tock(),
@@ -114,9 +115,16 @@ func (p *Peer) processGMCast(rpc RPC, r *GMCastRequest) {
 
 	var rpcErr error
 	defer func() {
-		p.unity.deliver.Deliver(r.Body, r.UID, res)
-		p.log.Debugf("sending response back %#v", res)
-		rpc.Respond(res, rpcErr)
+		select {
+		case v := <-p.unity.deliver.Deliver(r, res):
+			p.log.Debugf("sending response back %#v", v)
+			if rpcErr == nil {
+				rpcErr = v.err
+			}
+			rpc.Respond(v.process, rpcErr)
+		case <-time.After(p.unity.timeout):
+			rpc.Respond(nil, ErrTimeoutProcessing)
+		}
 	}()
 
 	quorum := (len(p.State.Nodes) / 2) + 1
@@ -168,6 +176,7 @@ func (p *Peer) processGMCast(rpc RPC, r *GMCastRequest) {
 		case <-time.After(p.unity.timeout):
 			p.log.Errorf("timeout handling request %#v", r)
 			res.Success = false
+			rpcErr = ErrTimeoutProcessing
 			return
 		}
 	}
@@ -258,6 +267,7 @@ func (p *Peer) emitGather(req *GatherRequest) uint64 {
 // already on state S2, it already have the final timestamp and just needs to update m to
 // the final timestamp, update the group clock and clear the previous set.
 func (p *Peer) processCompute(rpc RPC, r *ComputeRequest) {
+	p.unity.deliver.Update(rpc)
 	res := &ComputeResponse{
 		RPCHeader: p.unity.GetRPCHeader(),
 		UID:       r.UID,
@@ -311,6 +321,7 @@ func (p *Peer) processCompute(rpc RPC, r *ComputeRequest) {
 //
 // The computed tsm will be already coupled into the GatherRequest.
 func (p *Peer) processGather(rpc RPC, r *GatherRequest) {
+	p.unity.deliver.Update(rpc)
 	res := &GatherResponse{
 		RPCHeader: p.unity.GetRPCHeader(),
 		UID:       r.UID,

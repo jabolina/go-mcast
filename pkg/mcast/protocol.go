@@ -10,6 +10,7 @@ import (
 type poweroff struct {
 	shutdown bool
 	ch       chan bool
+	destroy  chan bool
 	mutex    *sync.Mutex
 	closes   int
 }
@@ -44,6 +45,7 @@ func NewUnity(base *BaseConfiguration, cluster *ClusterConfiguration, storage St
 	off := poweroff{
 		shutdown: false,
 		ch:       make(chan bool, len(cluster.Servers)),
+		destroy:  make(chan bool, 1),
 		mutex:    &sync.Mutex{},
 	}
 	set := NewPreviousSet()
@@ -96,6 +98,7 @@ func (u *Unity) run() {
 	defer func() {
 		close(u.off.ch)
 		u.off.mutex.Unlock()
+		u.off.destroy <- true
 	}()
 
 	for _, peer := range u.State.Nodes {
@@ -108,10 +111,9 @@ func (u *Unity) run() {
 			u.off.closes += 1
 			if u.off.closes == len(u.State.Nodes) {
 				if !u.off.shutdown {
-					u.configuration.Logger.Debugf("unity finished")
 					u.off.shutdown = true
 				}
-
+				u.deliver.Shutdown()
 				return
 			}
 		default: //nolint:staticcheck
@@ -136,5 +138,14 @@ func (u *Unity) Shutdown() {
 	for _, peer := range u.State.Nodes {
 		peer.close <- true
 	}
-	u.State.group.Wait()
+
+	select {
+	case <-u.off.destroy:
+		u.State.group.Wait()
+		u.configuration.Logger.Debugf("unity finished")
+		return
+	case <-time.After(u.timeout * 2):
+		u.configuration.Logger.Debugf("timeout while shutdown, waited for %s", u.timeout*2)
+		return
+	}
 }

@@ -22,7 +22,12 @@ type PreviousSet struct {
 // conflicts with any other identifier on the previous set, is used to order the
 // requests, used for clock changes and for the delivery process.
 type ConflictRelationship interface {
+	// Verify if the given addresses conflicts with the values already
+	// present on memory.
 	Conflicts(id []ServerAddress) bool
+
+	// Verify if the given id conflicts with values given at the sample.
+	ConflictsWith(id []ServerAddress, sample map[UID][]ServerAddress) bool
 }
 
 // Using a universal hash function, hashes the received UID.
@@ -49,6 +54,18 @@ func (ps *PreviousSet) Conflicts(id []ServerAddress) bool {
 	defer ps.mutex.Unlock()
 	code := ps.hash(id)
 	_, ok := ps.values[code]
+	return ok
+}
+
+func (h *PreviousSet) ConflictsWith(id []ServerAddress, sample map[UID][]ServerAddress) bool {
+	hashed := make(map[uint64]UID)
+	for uid, addresses := range sample {
+		code := h.hash(addresses)
+		hashed[code] = uid
+	}
+
+	code := h.hash(id)
+	_, ok := hashed[code]
 	return ok
 }
 

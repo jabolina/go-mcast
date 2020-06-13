@@ -6,7 +6,7 @@ import (
 )
 
 func TestProtocol_BootstrapUnity(t *testing.T) {
-	unity := CreateUnity(5, t)
+	unity := CreateUnity(3, t)
 	unity.Shutdown()
 }
 
