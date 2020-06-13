@@ -3,10 +3,34 @@ package test
 import (
 	"fmt"
 	"go-mcast/pkg/mcast"
+	"sync"
 	"testing"
 )
 
-var BasePort = 8080
+type PortProvider struct {
+	base  int
+	mutex *sync.Mutex
+}
+
+func (p *PortProvider) GetAndAdd() int {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	value := p.base
+	p.base += 1
+	return value
+}
+
+func (p *PortProvider) Remove(size int) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.base -= size
+}
+
+var DefaultPortResolver = PortProvider{
+	base:  8080,
+	mutex: &sync.Mutex{},
+}
 
 type TestAddressResolver struct {
 }
@@ -18,12 +42,23 @@ func (t *TestAddressResolver) Resolve(id mcast.ServerID) (mcast.ServerAddress, e
 type UnityCluster struct {
 	T       *testing.T
 	Unities []*mcast.Unity
+	group   *sync.WaitGroup
+}
+
+func (u *UnityCluster) Peers() []*mcast.Peer {
+	var peers []*mcast.Peer
+	for _, unity := range u.Unities {
+		peers = append(peers, unity.ResolvePeer())
+	}
+	return peers
 }
 
 func (c *UnityCluster) Off() {
 	for _, unity := range c.Unities {
-		PoweroffUnity(unity, c.T)
+		go c.PoweroffUnity(unity)
 	}
+
+	c.group.Wait()
 }
 
 func ClusterConfiguration(servers []mcast.Server, transportConf mcast.TransportConfiguration) *mcast.ClusterConfiguration {
@@ -31,7 +66,6 @@ func ClusterConfiguration(servers []mcast.Server, transportConf mcast.TransportC
 		Servers:                servers,
 		TransportConfiguration: transportConf,
 	}
-
 }
 
 func CreateUnity(size int, t *testing.T) *mcast.Unity {
@@ -41,14 +75,13 @@ func CreateUnity(size int, t *testing.T) *mcast.Unity {
 
 	var servers []mcast.Server
 	for i := 0; i < size; i++ {
-		addr := fmt.Sprintf("127.0.0.1:%d", BasePort+i)
+		addr := fmt.Sprintf("127.0.0.1:%d", DefaultPortResolver.GetAndAdd())
 		server := mcast.Server{
 			ID:      mcast.ServerID(addr),
 			Address: mcast.ServerAddress(addr),
 		}
 		servers = append(servers, server)
 	}
-	BasePort += size
 
 	clusterConfiguration := ClusterConfiguration(servers, *transportConfiguration)
 	storage := mcast.NewInMemoryStorage()
@@ -63,7 +96,8 @@ func CreateUnity(size int, t *testing.T) *mcast.Unity {
 
 func CreateCluster(clusterSize, unitySize int, t *testing.T) *UnityCluster {
 	cluster := &UnityCluster{
-		T: t,
+		T:     t,
+		group: &sync.WaitGroup{},
 	}
 	var unities []*mcast.Unity
 	for i := 0; i < clusterSize; i++ {
@@ -73,12 +107,9 @@ func CreateCluster(clusterSize, unitySize int, t *testing.T) *UnityCluster {
 	return cluster
 }
 
-func PoweroffUnity(unity *mcast.Unity, t *testing.T) {
-	future := unity.Shutdown()
-
-	if err := future.Error(); err != nil {
-		t.Fatalf("failed on shutdown %v", err)
-	}
-
-	BasePort -= len(unity.State.Nodes)
+func (c *UnityCluster) PoweroffUnity(unity *mcast.Unity) {
+	c.group.Add(1)
+	defer c.group.Done()
+	unity.Shutdown()
+	DefaultPortResolver.Remove(len(unity.State.Nodes))
 }

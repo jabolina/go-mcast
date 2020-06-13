@@ -11,6 +11,7 @@ type poweroff struct {
 	shutdown bool
 	ch       chan bool
 	mutex    *sync.Mutex
+	closes   int
 }
 
 // Unity is a group
@@ -42,7 +43,7 @@ type Unity struct {
 func NewUnity(base *BaseConfiguration, cluster *ClusterConfiguration, storage Storage, clock LogicalGlobalClock) (*Unity, error) {
 	off := poweroff{
 		shutdown: false,
-		ch:       make(chan bool),
+		ch:       make(chan bool, len(cluster.Servers)),
 		mutex:    &sync.Mutex{},
 	}
 	set := NewPreviousSet()
@@ -50,7 +51,7 @@ func NewUnity(base *BaseConfiguration, cluster *ClusterConfiguration, storage St
 		previousSet:   set,
 		configuration: base,
 		timeout:       cluster.TransportConfiguration.Timeout,
-		deliver: 	   NewDeliver(storage, set, base.Logger),
+		deliver:       NewDeliver(storage, set, base.Logger),
 		clock:         clock,
 		off:           off,
 	}
@@ -91,6 +92,12 @@ func (u *Unity) checkRPCHeader(rpc RPC) error {
 }
 
 func (u *Unity) run() {
+	u.off.mutex.Lock()
+	defer func() {
+		close(u.off.ch)
+		u.off.mutex.Unlock()
+	}()
+
 	for _, peer := range u.State.Nodes {
 		u.State.emit(peer.Poll)
 	}
@@ -98,9 +105,17 @@ func (u *Unity) run() {
 	for {
 		select {
 		case <-u.off.ch:
-			// handle poweroff
-			return
-		default:
+			u.off.closes += 1
+			if u.off.closes == len(u.State.Nodes) {
+				if !u.off.shutdown {
+					u.configuration.Logger.Debugf("unity finished")
+					u.off.shutdown = true
+				}
+
+				return
+			}
+		default: //nolint:staticcheck
+			// noop
 		}
 	}
 }
@@ -117,17 +132,9 @@ func (u *Unity) GlobalClock() LogicalGlobalClock {
 
 // Shutdown all current spawned goroutines and returns
 // a blocking future to wait for the complete shutdown.
-func (u *Unity) Shutdown() Future {
-	u.off.mutex.Lock()
-	defer func() {
-		close(u.off.ch)
-		u.off.mutex.Unlock()
-	}()
-
-	if !u.off.shutdown {
-		u.off.ch <- true
-		u.off.shutdown = true
-		return &ShutdownFuture{unity: u}
+func (u *Unity) Shutdown() {
+	for _, peer := range u.State.Nodes {
+		peer.close <- true
 	}
-	return &ShutdownFuture{unity: nil}
+	u.State.group.Wait()
 }

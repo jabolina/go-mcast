@@ -39,6 +39,9 @@ type Peer struct {
 
 	// When the unity shutdown, each peer will also be shutdown.
 	shutdown bool
+
+	// Channel for shutdown notification.
+	close chan bool
 }
 
 func NewPeer(server Server, trans Transport, group *GroupState, unity *Unity) *Peer {
@@ -51,6 +54,7 @@ func NewPeer(server Server, trans Transport, group *GroupState, unity *Unity) *P
 		log:     unity.configuration.Logger,
 		channel: trans.Consumer(),
 		Trans:   trans,
+		close:   make(chan bool),
 	}
 	return peer
 }
@@ -60,6 +64,7 @@ func (p *Peer) Poll() {
 	// Handle clean up when the node gives up and shutdown
 	defer func() {
 		p.log.Debugf("shutdown process %s", p.Id)
+		p.unity.off.ch <- true
 	}()
 
 	for !p.shutdown {
@@ -67,8 +72,9 @@ func (p *Peer) Poll() {
 		case rpc := <-p.channel:
 			p.log.Debugf("received rpc %#v", rpc)
 			p.process(rpc)
-		case <-p.unity.off.ch:
+		case <-p.close:
 			p.shutdown = true
+			p.Trans.Close()
 			return
 		}
 	}

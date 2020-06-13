@@ -7,11 +7,12 @@ import (
 )
 
 func TestProtocol_BootstrapUnity(t *testing.T) {
-	PoweroffUnity(CreateUnity(5, t), t)
+	unity := CreateUnity(5, t)
+	unity.Shutdown()
 }
 
 func TestProtocol_BootstrapUnityCluster(t *testing.T) {
-	cluster := CreateCluster(2, 3, t)
+	cluster := CreateCluster(3, 5, t)
 	cluster.Off()
 }
 
@@ -24,7 +25,7 @@ func TestProtocol_BootstrapUnityCluster(t *testing.T) {
 // Then a response will be queried back from the unity state machine.
 func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 	unity := CreateUnity(1, t)
-	defer PoweroffUnity(unity, t)
+	defer unity.Shutdown()
 
 	peer := unity.ResolvePeer()
 	key := "test-key"
@@ -44,7 +45,7 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 		},
 		UID: mcast.UID(mcast.GenerateUID()),
 		Body: mcast.Message{
-			Data:         data,
+			Data: data,
 		},
 		Destination: []mcast.Server{
 			{
@@ -55,7 +56,7 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 	}
 
 	var res mcast.GMCastResponse
-	if err := peer.Trans.GMCast(peer.Id, peer.Address, &write, &res); err != nil {
+	if err = peer.Trans.GMCast(peer.Id, peer.Address, &write, &res); err != nil {
 		t.Fatalf("failed gmcast request %#v with %v", write, err)
 	}
 
@@ -87,7 +88,7 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 		},
 		UID: mcast.UID(mcast.GenerateUID()),
 		Body: mcast.Message{
-			Data:         data,
+			Data: data,
 		},
 		Destination: []mcast.Server{
 			{
@@ -116,9 +117,10 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 // state will jump directly to state S3.
 // Since the message will be processed on multiple peers at the same time,
 // the timestamp will be greater than 0.
+// After the write request, will be made read request into the unity state machine.
 func TestProtocol_GMCastMessageSingleUnityMultipleProcesses(t *testing.T) {
 	unity := CreateUnity(5, t)
-	defer PoweroffUnity(unity, t)
+	defer unity.Shutdown()
 
 	peer := unity.ResolvePeer()
 	key := "test-key-2"
@@ -138,7 +140,7 @@ func TestProtocol_GMCastMessageSingleUnityMultipleProcesses(t *testing.T) {
 		},
 		UID: mcast.UID(mcast.GenerateUID()),
 		Body: mcast.Message{
-			Data:         data,
+			Data: data,
 		},
 		Destination: []mcast.Server{
 			{
@@ -149,7 +151,7 @@ func TestProtocol_GMCastMessageSingleUnityMultipleProcesses(t *testing.T) {
 	}
 
 	var writeRes mcast.GMCastResponse
-	if err := peer.Trans.GMCast(peer.Id, peer.Address, &write, &writeRes); err != nil {
+	if err = peer.Trans.GMCast(peer.Id, peer.Address, &write, &writeRes); err != nil {
 		t.Fatalf("failed gmcast request %#v with %v", write, err)
 	}
 
@@ -180,7 +182,7 @@ func TestProtocol_GMCastMessageSingleUnityMultipleProcesses(t *testing.T) {
 		},
 		UID: mcast.UID(mcast.GenerateUID()),
 		Body: mcast.Message{
-			Data:         data,
+			Data: data,
 		},
 		Destination: []mcast.Server{
 			{

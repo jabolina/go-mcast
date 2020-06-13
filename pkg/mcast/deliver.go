@@ -49,11 +49,11 @@ type Deliver struct {
 func NewDeliver(storage Storage, conflict ConflictRelationship, log Logger) *Deliver {
 	return &Deliver{
 		messages: make(map[UID]processing),
-		delayed: make(map[UID]bool),
+		delayed:  make(map[UID]bool),
 		conflict: conflict,
-		mutex: &sync.Mutex{},
-		log: log,
-		machine: NewStateMachine(storage),
+		mutex:    &sync.Mutex{},
+		log:      log,
+		machine:  NewStateMachine(storage),
 	}
 }
 
@@ -69,9 +69,9 @@ func (d *Deliver) Add(rpc RPC) {
 			destination = append(destination, server.Address)
 		}
 		p := processing{
-			id:       cmd.UID,
-			state:    S0,
-			sequence: 0,
+			id:          cmd.UID,
+			state:       S0,
+			sequence:    0,
 			destination: destination,
 		}
 		_, delivered := d.delayed[cmd.UID]
@@ -85,9 +85,9 @@ func (d *Deliver) Add(rpc RPC) {
 			destination = append(destination, server.Address)
 		}
 		p := processing{
-			id:       cmd.UID,
-			state:    cmd.State,
-			sequence: cmd.Timestamp,
+			id:          cmd.UID,
+			state:       cmd.State,
+			sequence:    cmd.Timestamp,
 			destination: destination,
 		}
 		_, delivered := d.delayed[cmd.UID]
@@ -101,9 +101,9 @@ func (d *Deliver) Add(rpc RPC) {
 			destination = append(destination, server.Address)
 		}
 		p := processing{
-			id:       cmd.UID,
-			state:    cmd.State,
-			sequence: cmd.Timestamp,
+			id:          cmd.UID,
+			state:       cmd.State,
+			sequence:    cmd.Timestamp,
 			destination: destination,
 		}
 		_, delivered := d.delayed[cmd.UID]
