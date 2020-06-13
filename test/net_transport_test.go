@@ -44,8 +44,12 @@ func TestNetworkTransport_PooledConn(t *testing.T) {
 		Body: mcast.Message{
 			MessageState: 0,
 			Timestamp:    0,
-			Data:         []byte("hello, test!"),
-			Extensions:   nil,
+			Data: mcast.DataHolder{
+				Operation: mcast.Command,
+				Key:       "test",
+				Content:   []byte("hello, test!"),
+			},
+			Extensions: nil,
 		},
 	}
 	resp := mcast.GMCastResponse{
@@ -115,7 +119,11 @@ func TestNetworkTransport_GMCastRequest(t *testing.T) {
 			RPCHeader: mcast.RPCHeader{ProtocolVersion: 0},
 			UID:       "test-unique",
 			Body: mcast.Message{
-				Data: []byte("hello, test!"),
+				Data: mcast.DataHolder{
+					Operation: mcast.Command,
+					Key:       "test",
+					Content:   []byte("hello, test!"),
+				},
 			},
 		}
 		res := mcast.GMCastResponse{

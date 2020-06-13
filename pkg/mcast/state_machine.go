@@ -26,20 +26,23 @@ type InMemoryStateMachine struct {
 	store Storage
 }
 
-// Commit the entry into the stable storage.
+// Commit the operation into the stable storage.
+// Some operations will change values into the state machine
+// while some other operations is just querying the state
+// machine for values.
 func (i *InMemoryStateMachine) Commit(entry *Entry) (interface{}, error) {
-	var holder DataHolder
-	if err := json.Unmarshal(entry.Data, &holder); err != nil {
-		return nil, err
-	}
-
-	switch holder.Operation {
+	switch entry.Operation {
 	// Some entry will be changed.
 	case Command:
+		holder := DataHolder{
+			Operation: entry.Operation,
+			Key:       entry.Key,
+			Content:   entry.Data,
+		}
 		message := Message{
 			MessageState: S3,
 			Timestamp:    entry.FinalTimestamp,
-			Data:         holder.Content,
+			Data:         holder,
 			Extensions:   entry.Extensions,
 		}
 		data, err := json.Marshal(message)
@@ -50,9 +53,9 @@ func (i *InMemoryStateMachine) Commit(entry *Entry) (interface{}, error) {
 			return nil, err
 		}
 		return message, nil
-	// Some entry is read.
+	// Read an entry.
 	case Query:
-		data, err := i.store.Get([]byte(holder.Key))
+		data, err := i.store.Get([]byte(entry.Key))
 		if err != nil {
 			return nil, err
 		}

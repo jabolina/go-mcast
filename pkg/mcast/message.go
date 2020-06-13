@@ -66,8 +66,7 @@ type Message struct {
 	Timestamp uint64
 
 	// Holds the information to be replicated across replicas.
-	// This a marshalled version of the DataHolder struct.
-	Data []byte
+	Data DataHolder
 
 	// Extensions holds an opaque byte slice of information for middleware. It
 	// is up to the client of the library to properly modify this as it adds
@@ -77,6 +76,12 @@ type Message struct {
 
 // Entry that is committed into the state machine.
 type Entry struct {
+	// Which kind of entry is this.
+	Operation
+
+	// Key for association when writing the entry into the store.
+	Key string
+
 	// Holds the final timestamp when the message was committed.
 	FinalTimestamp uint64
 

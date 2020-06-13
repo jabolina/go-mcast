@@ -114,7 +114,7 @@ func (p *Peer) processGMCast(rpc RPC, r *GMCastRequest) {
 
 	var rpcErr error
 	defer func() {
-		p.unity.deliver.Deliver(r.Body.Data, r.Body.Extensions, r.UID, res)
+		p.unity.deliver.Deliver(r.Body, r.UID, res)
 		p.log.Debugf("sending response back %#v", res)
 		rpc.Respond(res, rpcErr)
 	}()

@@ -1,7 +1,6 @@
 package test
 
 import (
-	"encoding/json"
 	"go-mcast/pkg/mcast"
 	"testing"
 )
@@ -30,22 +29,17 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 	peer := unity.ResolvePeer()
 	key := "test-key"
 	value := "test"
-	holder := mcast.DataHolder{
-		Operation: mcast.Command,
-		Key:       key,
-		Content:   []byte(value),
-	}
-	data, err := json.Marshal(holder)
-	if err != nil {
-		t.Fatalf("failed marshalling holder %v. %v", holder, err)
-	}
 	write := mcast.GMCastRequest{
 		RPCHeader: mcast.RPCHeader{
 			ProtocolVersion: mcast.LatestProtocolVersion,
 		},
 		UID: mcast.UID(mcast.GenerateUID()),
 		Body: mcast.Message{
-			Data: data,
+			Data: mcast.DataHolder{
+				Operation: mcast.Command,
+				Key:       key,
+				Content:   []byte(value),
+			},
 		},
 		Destination: []mcast.Server{
 			{
@@ -56,7 +50,7 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 	}
 
 	var res mcast.GMCastResponse
-	if err = peer.Trans.GMCast(peer.Id, peer.Address, &write, &res); err != nil {
+	if err := peer.Trans.GMCast(peer.Id, peer.Address, &write, &res); err != nil {
 		t.Fatalf("failed gmcast request %#v with %v", write, err)
 	}
 
@@ -64,8 +58,8 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 		t.Fatalf("request failed computation. %#v", res)
 	}
 
-	if string(res.Body.Data) != value {
-		t.Fatalf("write response is different, expected [%s] found %s", value, string(res.Body.Data))
+	if string(res.Body.Data.Content) != value {
+		t.Fatalf("write response is different, expected [%s] found %s", value, string(res.Body.Data.Content))
 	}
 
 	if res.SequenceNumber != 0x0 {
@@ -74,21 +68,16 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 
 	// Now that the write request succeeded the value will
 	// be queried back for validation.
-	holder = mcast.DataHolder{
-		Operation: mcast.Query,
-		Key:       key,
-	}
-	data, err = json.Marshal(holder)
-	if err != nil {
-		t.Fatalf("failed marshalling holder %v. %v", holder, err)
-	}
 	read := mcast.GMCastRequest{
 		RPCHeader: mcast.RPCHeader{
 			ProtocolVersion: mcast.LatestProtocolVersion,
 		},
 		UID: mcast.UID(mcast.GenerateUID()),
 		Body: mcast.Message{
-			Data: data,
+			Data: mcast.DataHolder{
+				Operation: mcast.Query,
+				Key:       key,
+			},
 		},
 		Destination: []mcast.Server{
 			{
@@ -107,8 +96,8 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 		t.Fatalf("read failed computation. %#v", retrieved)
 	}
 
-	if string(retrieved.Body.Data) != value {
-		t.Fatalf("retrieved value was not %s found %s", value, string(retrieved.Body.Data))
+	if string(retrieved.Body.Data.Content) != value {
+		t.Fatalf("retrieved value was not %s found %s", value, string(retrieved.Body.Data.Content))
 	}
 }
 
@@ -125,22 +114,17 @@ func TestProtocol_GMCastMessageSingleUnityMultipleProcesses(t *testing.T) {
 	peer := unity.ResolvePeer()
 	key := "test-key-2"
 	value := "test"
-	holder := mcast.DataHolder{
-		Operation: mcast.Command,
-		Key:       key,
-		Content:   []byte(value),
-	}
-	data, err := json.Marshal(holder)
-	if err != nil {
-		t.Fatalf("failed marshalling holder %v. %v", holder, err)
-	}
 	write := mcast.GMCastRequest{
 		RPCHeader: mcast.RPCHeader{
 			ProtocolVersion: mcast.LatestProtocolVersion,
 		},
 		UID: mcast.UID(mcast.GenerateUID()),
 		Body: mcast.Message{
-			Data: data,
+			Data: mcast.DataHolder{
+				Operation: mcast.Command,
+				Key:       key,
+				Content:   []byte(value),
+			},
 		},
 		Destination: []mcast.Server{
 			{
@@ -151,7 +135,7 @@ func TestProtocol_GMCastMessageSingleUnityMultipleProcesses(t *testing.T) {
 	}
 
 	var writeRes mcast.GMCastResponse
-	if err = peer.Trans.GMCast(peer.Id, peer.Address, &write, &writeRes); err != nil {
+	if err := peer.Trans.GMCast(peer.Id, peer.Address, &write, &writeRes); err != nil {
 		t.Fatalf("failed gmcast request %#v with %v", write, err)
 	}
 
@@ -163,26 +147,21 @@ func TestProtocol_GMCastMessageSingleUnityMultipleProcesses(t *testing.T) {
 		t.Fatalf("sequence number should not be zero. %d", writeRes.SequenceNumber)
 	}
 
-	if string(writeRes.Body.Data) != value {
-		t.Fatalf("written value different. expected %s found %s", value, string(writeRes.Body.Data))
+	if string(writeRes.Body.Data.Content) != value {
+		t.Fatalf("written value different. expected %s found %s", value, string(writeRes.Body.Data.Content))
 	}
 
 	// Now query the state machine for the value back.
-	holder = mcast.DataHolder{
-		Operation: mcast.Query,
-		Key:       key,
-	}
-	data, err = json.Marshal(holder)
-	if err != nil {
-		t.Fatalf("failed marshalling holder %v. %v", holder, err)
-	}
 	read := mcast.GMCastRequest{
 		RPCHeader: mcast.RPCHeader{
 			ProtocolVersion: mcast.LatestProtocolVersion,
 		},
 		UID: mcast.UID(mcast.GenerateUID()),
 		Body: mcast.Message{
-			Data: data,
+			Data: mcast.DataHolder{
+				Operation: mcast.Query,
+				Key:       key,
+			},
 		},
 		Destination: []mcast.Server{
 			{
@@ -201,7 +180,7 @@ func TestProtocol_GMCastMessageSingleUnityMultipleProcesses(t *testing.T) {
 		t.Fatalf("read failed computation. %#v", retrieved)
 	}
 
-	if string(retrieved.Body.Data) != value {
-		t.Fatalf("retrieved value was not %s found %s", value, string(retrieved.Body.Data))
+	if string(retrieved.Body.Data.Content) != value {
+		t.Fatalf("retrieved value was not %s found %s", value, string(retrieved.Body.Data.Content))
 	}
 }

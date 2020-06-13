@@ -123,7 +123,7 @@ func (d *Deliver) Delete(uid UID) {
 }
 
 // Deliver the given response for the given rpc request.
-func (d *Deliver) Deliver(data, extension []byte, uid UID, res *GMCastResponse) {
+func (d *Deliver) Deliver(message Message, uid UID, res *GMCastResponse) {
 	d.mutex.Lock()
 	values := d.messages
 	d.mutex.Unlock()
@@ -132,7 +132,7 @@ func (d *Deliver) Deliver(data, extension []byte, uid UID, res *GMCastResponse) 
 	if ok {
 		p.sequence = res.SequenceNumber
 		delete(values, uid)
-		d.process(data, extension, p, res, values)
+		d.process(message, p, res, values)
 	}
 
 }
@@ -140,11 +140,13 @@ func (d *Deliver) Deliver(data, extension []byte, uid UID, res *GMCastResponse) 
 // Verify if request can be delivered.
 // If can be delivered now, the response will be committed
 // into the state machine.
-func (d *Deliver) process(data, extension []byte, p processing, res *GMCastResponse, values map[UID]processing) {
+func (d *Deliver) process(message Message, p processing, res *GMCastResponse, values map[UID]processing) {
 	entry := &Entry{
+		Operation:      message.Data.Operation,
+		Key:            message.Data.Key,
 		FinalTimestamp: p.sequence,
-		Data:           data,
-		Extensions:     extension,
+		Data:           message.Data.Content,
+		Extensions:     message.Extensions,
 	}
 
 	if len(values) == 0 {
@@ -167,8 +169,12 @@ func (d *Deliver) Commit(uid UID, entry *Entry, res *GMCastResponse) {
 	failed := Message{
 		MessageState: S0,
 		Timestamp:    0,
-		Data:         nil,
-		Extensions:   nil,
+		Data: DataHolder{
+			Operation: 0,
+			Key:       "",
+			Content:   nil,
+		},
+		Extensions: nil,
 	}
 	if err != nil {
 		d.log.Debugf("failed commit %v", err)
