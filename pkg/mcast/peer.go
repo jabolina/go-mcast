@@ -1,6 +1,7 @@
 package mcast
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"time"
@@ -13,7 +14,20 @@ var (
 
 	// Used when the configured timeout occurs while processing are request.
 	ErrTimeoutProcessing = errors.New("timeout while processing request")
+
+	// When all GMCastResponse are gathered back, the returned values are assert to
+	// be equals on all unities. If a single value differ the protocol request will
+	// fail, since the unities are somehow not consistent anymore.
+	ErrProtocolDifferentValues = errors.New("inconsistent protocol response")
 )
+
+// Used to communication between channels.
+// So the listener can be notified about RPC errors as well.
+type Tuple struct {
+	Value interface{}
+
+	Err error
+}
 
 type Peer struct {
 	// Peer identifier
@@ -97,6 +111,8 @@ func (p *Peer) process(rpc RPC) {
 	}
 
 	switch cmd := rpc.Command.(type) {
+	case *Request:
+		p.processRequest(rpc, cmd)
 	case *GMCastRequest:
 		p.processGMCast(rpc, cmd)
 	case *ComputeRequest:
@@ -106,6 +122,93 @@ func (p *Peer) process(rpc RPC) {
 	default:
 		p.log.Errorf("unexpected command: %#v", rpc.Command)
 		rpc.Respond(nil, fmt.Errorf("unexpected command: %#v", rpc.Command))
+	}
+}
+
+// This is the protocol entry point. When receiving a new replicate
+// request this method will construct the right GMCastRequest and will
+// send to all unities present in the request destination.
+// After receiving the response from *all* unities, the value will be
+// consolidated into a single response struct and sent back to the protocol
+// client.
+func (p *Peer) processRequest(rpc RPC, req *Request) {
+	var rpcErr error
+	var res Response
+	defer func() {
+		p.log.Debugf("final response %#v and error %v", res, rpcErr)
+		rpc.Respond(res, rpcErr)
+	}()
+
+	channel := make(chan GMCastResponse, len(req.Destination))
+	mcreq := GMCastRequest{
+		RPCHeader: req.GetRPCHeader(),
+		UID:       UID(GenerateUID()),
+		Body: Message{
+			MessageState: S0,
+			Data: DataHolder{
+				Operation: req.Operation,
+				Key:       string(req.Key),
+				Content:   req.Value,
+			},
+			Extensions: req.Extra,
+		},
+		Destination: req.Destination,
+	}
+
+	caller := func(destination Server) {
+		p.State.emit(func() {
+			var mcres GMCastResponse
+			if err := p.Trans.GMCast(destination.ID, destination.Address, &mcreq, &mcres); err != nil {
+				p.log.Errorf("error sending request to %#v", destination)
+			}
+			channel <- mcres
+		})
+	}
+
+	for _, server := range req.Destination {
+		caller(server)
+	}
+
+	res, rpcErr = p.handleRequest(*req, channel)
+}
+
+// Listen the channel for GMCast responses, when all responses have been received
+// validate the content for consistency and returns only a single value back.
+func (p *Peer) handleRequest(req Request, channel chan GMCastResponse) (Response, error) {
+	var res Response
+	var responses []GMCastResponse
+
+	for {
+		select {
+		// A new RPC was received for processing.
+		case newRpc := <-p.channel:
+			p.process(newRpc)
+
+		// Received a GMCastResponse back.
+		case gm := <-channel:
+			responses = append(responses, gm)
+			if len(responses) == len(req.Destination) {
+				v := responses[0]
+				for _, c := range responses[1:] {
+					if !bytes.Equal(c.Body.Data.Content, v.Body.Data.Content) {
+						return res, ErrProtocolDifferentValues
+					}
+
+					if !bytes.Equal(c.Body.Extensions, v.Body.Extensions) {
+						return res, ErrProtocolDifferentValues
+					}
+				}
+				return Response{
+					Success: true,
+					Value:   v.Body.Data.Content,
+					Extra:   v.Body.Extensions,
+				}, nil
+			}
+
+		// Timeout with the configured protocol timeout.
+		case <-time.After(p.unity.timeout):
+			return res, ErrTimeoutProcessing
+		}
 	}
 }
 

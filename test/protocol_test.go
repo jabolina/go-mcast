@@ -101,90 +101,6 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 	}
 }
 
-// This will create a single unity that holds 5 peers. Since the destination
-// is only a single unity there will be no cross groups requests and the request
-// state will jump directly to state S3.
-// Since the message will be processed on multiple peers at the same time,
-// the timestamp will be greater than 0.
-// After the write request, will be made read request into the unity state machine.
-func TestProtocol_GMCastMessageSingleUnityMultipleProcesses(t *testing.T) {
-	unity := CreateUnity(5, t)
-	defer unity.Shutdown()
-
-	peer := unity.ResolvePeer()
-	key := "test-key-2"
-	value := "test"
-	write := mcast.GMCastRequest{
-		RPCHeader: mcast.RPCHeader{
-			ProtocolVersion: mcast.LatestProtocolVersion,
-		},
-		UID: mcast.UID(mcast.GenerateUID()),
-		Body: mcast.Message{
-			Data: mcast.DataHolder{
-				Operation: mcast.Command,
-				Key:       key,
-				Content:   []byte(value),
-			},
-		},
-		Destination: []mcast.Server{
-			{
-				ID:      peer.Id,
-				Address: peer.Address,
-			},
-		},
-	}
-
-	var writeRes mcast.GMCastResponse
-	if err := peer.Trans.GMCast(peer.Id, peer.Address, &write, &writeRes); err != nil {
-		t.Fatalf("failed gmcast request %#v with %v", write, err)
-	}
-
-	if !writeRes.Success {
-		t.Fatalf("request failed computation. %#v", writeRes)
-	}
-
-	if writeRes.SequenceNumber == 0x0 {
-		t.Fatalf("sequence number should not be zero. %d", writeRes.SequenceNumber)
-	}
-
-	if string(writeRes.Body.Data.Content) != value {
-		t.Fatalf("written value different. expected %s found %s", value, string(writeRes.Body.Data.Content))
-	}
-
-	// Now query the state machine for the value back.
-	read := mcast.GMCastRequest{
-		RPCHeader: mcast.RPCHeader{
-			ProtocolVersion: mcast.LatestProtocolVersion,
-		},
-		UID: mcast.UID(mcast.GenerateUID()),
-		Body: mcast.Message{
-			Data: mcast.DataHolder{
-				Operation: mcast.Query,
-				Key:       key,
-			},
-		},
-		Destination: []mcast.Server{
-			{
-				ID:      peer.Id,
-				Address: peer.Address,
-			},
-		},
-	}
-
-	var retrieved mcast.GMCastResponse
-	if err := peer.Trans.GMCast(peer.Id, peer.Address, &read, &retrieved); err != nil {
-		t.Fatalf("failed read request %#v with %v", write, err)
-	}
-
-	if !retrieved.Success {
-		t.Fatalf("read failed computation. %#v", retrieved)
-	}
-
-	if string(retrieved.Body.Data.Content) != value {
-		t.Fatalf("retrieved value was not %s found %s", value, string(retrieved.Body.Data.Content))
-	}
-}
-
 // This will create a cluster of unities and requests message using all groups
 // as destinations.
 // First will be made a write request to unity 1 and then will be made a
@@ -205,24 +121,19 @@ func TestProtocol_TestMultipleUnities(t *testing.T) {
 
 	key := "test-key"
 	value := "test"
-	write := mcast.GMCastRequest{
+	write := mcast.Request{
 		RPCHeader: mcast.RPCHeader{
 			ProtocolVersion: mcast.LatestProtocolVersion,
 		},
-		UID: mcast.UID(mcast.GenerateUID()),
-		Body: mcast.Message{
-			Data: mcast.DataHolder{
-				Operation: mcast.Command,
-				Key:       key,
-				Content:   []byte(value),
-			},
-		},
+		Key:         []byte(key),
+		Value:       []byte(value),
 		Destination: destination,
+		Operation:   mcast.Command,
 	}
 
 	peer1 := peers[0]
-	var res mcast.GMCastResponse
-	if err := peer1.Trans.GMCast(peer1.Id, peer1.Address, &write, &res); err != nil {
+	var res mcast.Response
+	if err := peer1.Trans.Request(peer1.Id, peer1.Address, &write, &res); err != nil {
 		t.Fatalf("failed gmcast request %#v with %v", write, err)
 	}
 
@@ -230,33 +141,24 @@ func TestProtocol_TestMultipleUnities(t *testing.T) {
 		t.Fatalf("request failed computation. %#v", res)
 	}
 
-	if string(res.Body.Data.Content) != value {
-		t.Fatalf("write response is different, expected [%s] found %s", value, string(res.Body.Data.Content))
-	}
-
-	if res.SequenceNumber == 0x0 {
-		t.Fatalf("sequence number sould not be 0, found %d", res.SequenceNumber)
+	if string(res.Value) != value {
+		t.Fatalf("write response is different, expected [%s] found %s", value, string(res.Value))
 	}
 
 	// Now that the write request succeeded the value will
 	// be queried back for validation from another unity.
-	read := mcast.GMCastRequest{
+	read := mcast.Request{
 		RPCHeader: mcast.RPCHeader{
 			ProtocolVersion: mcast.LatestProtocolVersion,
 		},
-		UID: mcast.UID(mcast.GenerateUID()),
-		Body: mcast.Message{
-			Data: mcast.DataHolder{
-				Operation: mcast.Query,
-				Key:       key,
-			},
-		},
+		Operation:   mcast.Query,
+		Key:         []byte(key),
 		Destination: destination,
 	}
 
 	peer2 := peers[0]
-	var retrieved mcast.GMCastResponse
-	if err := peer2.Trans.GMCast(peer2.Id, peer2.Address, &read, &retrieved); err != nil {
+	var retrieved mcast.Response
+	if err := peer2.Trans.Request(peer2.Id, peer2.Address, &read, &retrieved); err != nil {
 		t.Fatalf("failed read request %#v with %v", write, err)
 	}
 
@@ -264,7 +166,7 @@ func TestProtocol_TestMultipleUnities(t *testing.T) {
 		t.Fatalf("read failed computation. %#v", retrieved)
 	}
 
-	if string(retrieved.Body.Data.Content) != value {
-		t.Fatalf("retrieved value was not %s found %s", value, string(retrieved.Body.Data.Content))
+	if string(retrieved.Value) != value {
+		t.Fatalf("retrieved value was not %s found %s", value, string(retrieved.Value))
 	}
 }

@@ -43,6 +43,9 @@ type Transport interface {
 	// Closes the transport.
 	Close() error
 
+	// Entry point for the final user to send a request to the protocol.
+	Request(id ServerID, target ServerAddress, req *Request, res *Response) error
+
 	// Send the appropriate RPC request to the target peer.
 	GMCast(id ServerID, target ServerAddress, req *GMCastRequest, res *GMCastResponse) error
 

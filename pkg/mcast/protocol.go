@@ -93,6 +93,13 @@ func (u *Unity) checkRPCHeader(rpc RPC) error {
 	return nil
 }
 
+// Will keep running until receiving close requests
+// through the close channel from all peers present in
+// the unity.
+// After that will wait for all spawned go routines be finished
+// and then close all channels and release the lock.
+// The close lock will be held only by the unity the whole
+// application life-time.
 func (u *Unity) run() {
 	u.off.mutex.Lock()
 	defer func() {

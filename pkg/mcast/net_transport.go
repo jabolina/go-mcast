@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	rpcGMCast uint8 = iota
+	rpcRequest uint8 = iota
+	rpcGMCast
 	rpcCompute
 	rpcGather
 	rpcRecover
@@ -267,6 +268,12 @@ func (n *NetworkTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, en
 	}
 
 	switch rpcType {
+	case rpcRequest:
+		var req Request
+		if err := dec.Decode(&req); err != nil {
+			return err
+		}
+		rpc.Command = &req
 	case rpcGMCast:
 		var req GMCastRequest
 		if err := dec.Decode(&req); err != nil {
@@ -455,6 +462,11 @@ func (n *NetworkTransport) DecodePeer(bytes []byte) ServerAddress {
 // LocalAddress implements Transport interface.
 func (n *NetworkTransport) LocalAddress() ServerAddress {
 	return ServerAddress(n.stream.Addr().String())
+}
+
+// Implements the Transport interface.
+func (n *NetworkTransport) Request(id ServerID, target ServerAddress, req *Request, res *Response) error {
+	return n.genericRPC(id, target, rpcRequest, req, res)
 }
 
 // Implements the Transport interface.
