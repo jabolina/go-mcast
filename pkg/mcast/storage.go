@@ -1,6 +1,9 @@
 package mcast
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // Used to provide storage for the state machine values.
 type Storage interface {
@@ -31,13 +34,13 @@ func (s *InMemoryStorage) Set(key []byte, value []byte) error {
 }
 
 // Implements the Get for the Storage interface.
-// On this implementation if no value was found, a empty slice will be returned.
+// On this implementation if no value was found, an error will be returned.
 func (s *InMemoryStorage) Get(key []byte) ([]byte, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	value, ok := s.kv[string(key)]
 	if !ok {
-		return make([]byte, 0), nil
+		return nil, fmt.Errorf("not found value for %s", string(key))
 	}
 	return value, nil
 }

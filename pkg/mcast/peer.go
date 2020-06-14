@@ -2,6 +2,7 @@ package mcast
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -62,6 +63,7 @@ func NewPeer(server Server, trans Transport, group *GroupState, unity *Unity) *P
 	return peer
 }
 
+// Starts the peer and keep polling forever until shutdown.
 func (p *Peer) Poll() {
 	p.log.Debugf("started polling for %s", p.Id)
 	// Handle clean up when the node gives up and shutdown
@@ -73,7 +75,6 @@ func (p *Peer) Poll() {
 	for !p.shutdown {
 		select {
 		case rpc := <-p.channel:
-			p.log.Debugf("received rpc %#v", rpc)
 			p.process(rpc)
 		case <-p.close:
 			p.shutdown = true
@@ -85,10 +86,13 @@ func (p *Peer) Poll() {
 
 // Process the current received RPC.
 func (p *Peer) process(rpc RPC) {
+	p.log.Debugf("received rpc %#v", rpc)
+
 	// Verify if the current peer is able to process
 	// the rpc that just arrives.
 	if err := p.unity.checkRPCHeader(rpc); err != nil {
 		p.log.Warnf("received version not handled at %s. %v", p.Id, err)
+		rpc.Respond(nil, ErrUnsupportedProtocol)
 		return
 	}
 
@@ -101,6 +105,7 @@ func (p *Peer) process(rpc RPC) {
 		p.processGather(rpc, cmd)
 	default:
 		p.log.Errorf("unexpected command: %#v", rpc.Command)
+		rpc.Respond(nil, fmt.Errorf("unexpected command: %#v", rpc.Command))
 	}
 }
 
@@ -127,60 +132,7 @@ func (p *Peer) processGMCast(rpc RPC, r *GMCastRequest) {
 		}
 	}()
 
-	quorum := (len(p.State.Nodes) / 2) + 1
-	votes := 0
-	done := false
-
-	computedTimestamps := make([]uint64, 0)
-	computeChannel := p.handleGMCast(r, r.Body)
-
-	for {
-		select {
-		case newRpc := <-p.channel:
-			p.process(newRpc)
-
-		case computed := <-computeChannel:
-			p.log.Debugf("received compute response from channel: %#v", computed)
-			votes++
-			computedTimestamps = append(computedTimestamps, computed.Timestamp)
-			if votes >= quorum && !done {
-				done = true
-				switch computed.State {
-				case S1:
-				case S2:
-					// There is more than one process group on the destination, need to execute
-					// a gather request to exchange the timestamp between groups.
-					if votes >= quorum {
-						tsm := max(computedTimestamps)
-						gatherReq := &GatherRequest{
-							RPCHeader: p.unity.GetRPCHeader(),
-							UID:       r.UID,
-							State:     computed.State,
-							Timestamp: tsm,
-						}
-						sequenceNumber := p.emitGather(gatherReq)
-						p.log.Debugf("sequence number is %ld", sequenceNumber)
-					}
-				case S3:
-					p.log.Debugf("delivering response %#v for req %#v", res, r)
-					res.Success = true
-					res.SequenceNumber = max(computedTimestamps)
-					// Ready to be committed into the state machine.
-					return
-				default:
-					p.log.Errorf("unknown compute response state %#v", computed)
-					res.Success = false
-					return
-				}
-			}
-		case <-time.After(p.unity.timeout):
-			p.log.Errorf("timeout handling request %#v", r)
-			res.Success = false
-			rpcErr = ErrTimeoutProcessing
-			return
-		}
-	}
-
+	rpcErr = p.handleCompute(p.handleGMCast(r, r.Body), r, res)
 }
 
 // Will handle the received GM-cast issuing the needed RPC requests.
@@ -194,6 +146,7 @@ func (p *Peer) handleGMCast(r *GMCastRequest, message Message) <-chan *ComputeRe
 		UID:         r.UID,
 		State:       message.MessageState,
 		Destination: r.Destination,
+		Timestamp:   message.Timestamp,
 	}
 
 	ask := func(peer Server) {
@@ -204,7 +157,6 @@ func (p *Peer) handleGMCast(r *GMCastRequest, message Message) <-chan *ComputeRe
 				p.log.Errorf("failed on compute RPC to target %#v. error %v", peer, err)
 				res.State = S0
 			}
-			p.log.Debugf("sending compute response: %#v", res)
 			channel <- res
 		})
 	}
@@ -220,39 +172,6 @@ func (p *Peer) handleGMCast(r *GMCastRequest, message Message) <-chan *ComputeRe
 	}
 
 	return channel
-}
-
-func (p *Peer) emitGather(req *GatherRequest) uint64 {
-	channel := make(chan *GatherResponse, len(req.Destination))
-	emit := func(peer Server) {
-		p.State.emit(func() {
-			res := new(GatherResponse)
-			err := p.Trans.Gather(peer.ID, peer.Address, req, res)
-			if err != nil {
-				p.log.Errorf("failed to gather to target %v. error %v", peer, err)
-			}
-			channel <- res
-		})
-	}
-
-	received := 0
-	var tsm uint64
-	select {
-	case res := <-channel:
-		received++
-		if received == len(req.Destination) {
-			tsm = res.Timestamp
-		}
-	case <-time.After(p.unity.timeout):
-		// fixme: returns error on timeout
-		panic("timeout gathering")
-	}
-
-	for _, destination := range req.Destination {
-		emit(destination)
-	}
-
-	return tsm
 }
 
 // Process Compute requests, after the messages is broadcast to the process groups.
@@ -312,6 +231,67 @@ func (p *Peer) processCompute(rpc RPC, r *ComputeRequest) {
 	}
 }
 
+func (p *Peer) handleCompute(channel <-chan *ComputeResponse, req *GMCastRequest, res *GMCastResponse) error {
+	// The protocol requires that a majority of peers
+	// must be non-faulty. So is needed only a majority
+	// of responses before proceeding.
+	quorum := (len(p.State.Nodes) / 2) + 1
+	done := false
+	computedTimestamps := make([]uint64, 0)
+
+	for {
+		select {
+		// A new RPC was received for processing.
+		case newRpc := <-p.channel:
+			p.process(newRpc)
+
+		// Received a compute response back.
+		case computed := <-channel:
+			computedTimestamps = append(computedTimestamps, computed.Timestamp)
+			// If received a majority of response back from the unity peers.
+			// This is only calls that occur inside the unity.
+			// Each unity could zone aware and be deployed on different
+			// zones across the data center.
+			if len(computedTimestamps) >= quorum && !done {
+				done = true
+				switch computed.State {
+				case S1, S2:
+					// There is more than one process group on the destination, need to execute
+					// a gather request to exchange the timestamp between groups.
+					tsm := max(computedTimestamps)
+					gatherReq := &GatherRequest{
+						RPCHeader:   p.unity.GetRPCHeader(),
+						UID:         req.UID,
+						State:       computed.State,
+						Timestamp:   tsm,
+						Destination: req.Destination,
+					}
+					sequenceNumber, err := p.handleGather(gatherReq, req, res)
+					if err != nil {
+						return err
+					}
+					res.Success = true
+					res.SequenceNumber = sequenceNumber
+					return nil
+				case S3:
+					res.Success = true
+					res.SequenceNumber = max(computedTimestamps)
+					return nil
+				default:
+					p.log.Errorf("unknown compute response state %#v", computed)
+					res.Success = false
+					return fmt.Errorf("unknown compute response state %#v", computed)
+				}
+			}
+		// Timeout occurred before could process the request.
+		case <-time.After(p.unity.timeout):
+			p.log.Errorf("timeout handling request %#v", req)
+			res.Success = false
+			return ErrTimeoutProcessing
+		}
+	}
+}
+
 // Process a Gather request.
 // When a message m has more than on destination group, the destination groups have
 // to exchange its timestamps to decide the final timestamp on m. Thus, after
@@ -330,9 +310,66 @@ func (p *Peer) processGather(rpc RPC, r *GatherRequest) {
 
 	if r.Timestamp >= p.unity.GlobalClock().Tock() {
 		res.State = S3
+		res.Timestamp = r.Timestamp
+		p.unity.GlobalClock().Leap(r.Timestamp)
 	} else {
 		res.Timestamp = p.unity.GlobalClock().Tock()
 		res.State = S2
+	}
+}
+
+// Sends a gather request for peer on destination.
+// This is used to exchange the global timestamp across
+// all unities, after that the unities will be synchronized.
+func (p *Peer) handleGather(req *GatherRequest, original *GMCastRequest, res *GMCastResponse) (uint64, error) {
+	p.log.Debugf("sending gather req %#v", req)
+	channel := make(chan *GatherResponse, len(req.Destination))
+	emit := func(peer Server) {
+		p.State.emit(func() {
+			res := new(GatherResponse)
+			err := p.Trans.Gather(peer.ID, peer.Address, req, res)
+			if err != nil {
+				p.log.Errorf("failed to gather to target %v. error %v", peer, err)
+			}
+			p.log.Debugf("recv gather response %#v", res)
+			channel <- res
+		})
+	}
+
+	for _, destination := range req.Destination {
+		emit(destination)
+	}
+
+	var gathered []uint64
+	for {
+		select {
+		// A new RPC was received for processing.
+		case newRpc := <-p.channel:
+			p.process(newRpc)
+
+		case v := <-channel:
+			gathered = append(gathered, v.Timestamp)
+			if len(gathered) == len(req.Destination) {
+				if v.State == S2 {
+					// The global clock contains a higher value,
+					// so the received timestamp must be exchanged
+					// between processes within the unity.
+					original.Body.MessageState = S2
+					original.Body.Timestamp = req.Timestamp
+					if err := p.handleCompute(p.handleGMCast(original, original.Body), original, res); err != nil {
+						return 0, err
+					}
+					return res.SequenceNumber, nil
+				} else {
+					// The unity clock already contains a value
+					// higher than the global clock and is ready
+					// to be delivered.
+					return max(gathered), nil
+				}
+			}
+		case <-time.After(p.unity.timeout):
+			return 0, ErrTimeoutProcessing
+		}
 	}
 }
 
