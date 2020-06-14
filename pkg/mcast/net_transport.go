@@ -328,7 +328,9 @@ func (n *NetworkTransport) genericRPC(id ServerID, target ServerAddress, rpcType
 	}
 
 	if n.timeout > 0 {
-		conn.conn.SetDeadline(time.Now().Add(n.timeout))
+		if err = conn.conn.SetDeadline(time.Now().Add(n.timeout)); err != nil {
+			n.logger.Warnf("request %#v without deadline because of %v", req, err)
+		}
 	}
 
 	n.logger.Debugf("sending rpc %#v to %s", req, target)

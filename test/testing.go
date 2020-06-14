@@ -55,6 +55,7 @@ func (u *UnityCluster) Peers() []*mcast.Peer {
 
 func (c *UnityCluster) Off() {
 	for _, unity := range c.Unities {
+		c.group.Add(1)
 		go c.PoweroffUnity(unity)
 	}
 
@@ -108,7 +109,6 @@ func CreateCluster(clusterSize, unitySize int, t *testing.T) *UnityCluster {
 }
 
 func (c *UnityCluster) PoweroffUnity(unity *mcast.Unity) {
-	c.group.Add(1)
 	defer c.group.Done()
 	unity.Shutdown()
 	DefaultPortResolver.Remove(len(unity.State.Nodes))

@@ -33,14 +33,14 @@ type processing struct {
 
 	// This will be filled when the request
 	// is able to be delivered.
-	res *GMCastResponse
+	res GMCastResponse
 }
 
 // A delivery response to be sent back through the
 // channel after a message was processed.
 type DeliverResponse struct {
 	// Holds the final response if success or nil otherwise.
-	process *GMCastResponse
+	process GMCastResponse
 
 	// Holds and error if the deliver failed or nil otherwise.
 	err error
@@ -66,7 +66,7 @@ type Deliver struct {
 	log Logger
 
 	// Lock to execute operations.
-	mutex *sync.Mutex
+	mutex *sync.RWMutex
 
 	// Handle spawned goroutines for processing.
 	spawn *sync.WaitGroup
@@ -76,7 +76,7 @@ func NewDeliver(storage Storage, conflict ConflictRelationship, log Logger) *Del
 	return &Deliver{
 		messages: make(map[UID]processing),
 		conflict: conflict,
-		mutex:    &sync.Mutex{},
+		mutex:    &sync.RWMutex{},
 		spawn:    &sync.WaitGroup{},
 		log:      log,
 		machine:  NewStateMachine(storage),
@@ -134,18 +134,16 @@ func (d *Deliver) Update(rpc RPC) {
 	switch cmd := rpc.Command.(type) {
 	case *ComputeRequest:
 		p, existent := d.messages[cmd.UID]
-		if !existent {
-			return
+		if existent {
+			p.state = cmd.State
+			d.messages[p.id] = p
 		}
-		p.state = cmd.State
-		d.messages[p.id] = p
 	case *GatherRequest:
 		p, existent := d.messages[cmd.UID]
-		if !existent {
-			return
+		if existent {
+			p.state = cmd.State
+			d.messages[p.id] = p
 		}
-		p.state = cmd.State
-		d.messages[p.id] = p
 	}
 }
 
@@ -164,7 +162,7 @@ func (d *Deliver) Delete(uid UID) {
 // If the request is not present in the messages history
 // creates a new channel and answer back the caller and
 // spawn the processing goroutine to start delivering the requests.
-func (d *Deliver) Deliver(req *GMCastRequest, res *GMCastResponse) <-chan DeliverResponse {
+func (d *Deliver) Deliver(req *GMCastRequest, res GMCastResponse) <-chan DeliverResponse {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -202,7 +200,10 @@ func (d *Deliver) Deliver(req *GMCastRequest, res *GMCastResponse) <-chan Delive
 func (d *Deliver) doDeliver() {
 	defer d.spawn.Done()
 	d.mutex.Lock()
-	snapshot := d.messages
+	snapshot := make(map[UID]processing)
+	for uid, p := range d.messages {
+		snapshot[uid] = p
+	}
 	d.mutex.Unlock()
 
 	ready := make(map[UID]processing)
@@ -323,7 +324,7 @@ func (d *Deliver) deterministicDeliver(values map[UID]processing) {
 // channel.
 // There is a recover ready to capture if a response was written
 // in a closed channel.
-func (d *Deliver) Commit(m processing, res *GMCastResponse) {
+func (d *Deliver) Commit(m processing, res GMCastResponse) {
 	defer func() {
 		if r := recover(); r != nil {
 			d.log.Warnf("publish on closed channel for %s", m.id)

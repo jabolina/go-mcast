@@ -105,19 +105,14 @@ func (u *Unity) run() {
 		u.State.emit(peer.Poll)
 	}
 
-	for {
-		select {
-		case <-u.off.ch:
-			u.off.closes += 1
-			if u.off.closes == len(u.State.Nodes) {
-				if !u.off.shutdown {
-					u.off.shutdown = true
-				}
-				u.deliver.Shutdown()
-				return
+	for range u.off.ch {
+		u.off.closes += 1
+		if u.off.closes == len(u.State.Nodes) {
+			if !u.off.shutdown {
+				u.off.shutdown = true
 			}
-		default: //nolint:staticcheck
-			// noop
+			u.deliver.Shutdown()
+			break
 		}
 	}
 }
