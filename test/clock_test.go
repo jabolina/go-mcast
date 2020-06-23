@@ -1,14 +1,14 @@
 package test
 
 import (
-	"go-mcast/pkg/mcast"
+	"go-mcast/internal"
 	"sync"
 	"testing"
 )
 
 func TestLogicalClock_GroupTick(t *testing.T) {
 	concurrentMembers := 50
-	clk := new(mcast.LogicalClock)
+	clk := new(internal.ProcessClock)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(concurrentMembers)

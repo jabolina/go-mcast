@@ -1,4 +1,4 @@
-package mcast
+package internal
 
 import (
 	crand "crypto/rand"
@@ -17,4 +17,15 @@ func GenerateUID() string {
 		buf[6:8],
 		buf[8:10],
 		buf[10:16])
+}
+
+// Return the greatest value in a uint64 slice.
+func MaxValue(values []uint64) uint64 {
+	var value uint64
+	for _, v := range values {
+		if v > value {
+			value = v
+		}
+	}
+	return value
 }

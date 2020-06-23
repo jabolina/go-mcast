@@ -1,26 +1,28 @@
 package mcast
 
-func NewAtomicMulticast(base *BaseConfiguration, cluster *ClusterConfiguration, storage Storage, clock LogicalGlobalClock) (*Unity, error) {
-	if err := ValidateBaseConfiguration(base); err != nil {
-		return nil, err
-	}
+import "go-mcast/internal"
 
-	if err := ValidateClusterConfiguration(cluster); err != nil {
-		return nil, err
-	}
+// Creates a new multicast instance for the partition with the
+// given name. This will use the default configuration.
+func NewMulticast(name internal.Partition) (internal.Unity, error) {
+	return NewMulticastConfigured(DefaultConfiguration(name))
+}
 
-	if err := ValidateTransportConfiguration(&cluster.TransportConfiguration); err != nil {
-		return nil, err
-	}
+// Create a new multicast instance using the given configuration.
+func NewMulticastConfigured(configuration *internal.Configuration) (internal.Unity, error) {
+	return internal.NewUnity(configuration)
+}
 
-	if base.Logger == nil {
-		base.Logger = NewDefaultLogger()
+// Creates the default configuration for a partition with the given
+// name. This will not use a stable storage nor a real conflict
+// relationship for the messages.
+func DefaultConfiguration(name internal.Partition) *internal.Configuration {
+	return &internal.Configuration{
+		Name:        name,
+		Replication: 3,
+		Version:     internal.LatestProtocolVersion,
+		Conflict:    &AlwaysConflict{},
+		Storage:     NewInMemoryStorage(),
+		Logger:      NewDefaultLogger(),
 	}
-
-	unity, err := NewUnity(base, cluster, storage, clock)
-	if err != nil {
-		return nil, err
-	}
-
-	return unity, nil
 }

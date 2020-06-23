@@ -5,15 +5,6 @@ import (
 	"sync"
 )
 
-// Used to provide storage for the state machine values.
-type Storage interface {
-	// Set the value associated with the key
-	Set(key []byte, value []byte) error
-
-	// Get the serialized value associated with the key.
-	Get(key []byte) ([]byte, error)
-}
-
 // Provides a basic implementation of the Storage interface
 // that will use only the memory, no stable storage is provided
 // with this implementation. Is up to the user to use its desired storage.

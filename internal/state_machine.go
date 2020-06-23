@@ -1,4 +1,4 @@
-package mcast
+package internal
 
 import (
 	"encoding/json"
@@ -34,28 +34,17 @@ func (i *InMemoryStateMachine) Commit(entry *Entry) (interface{}, error) {
 	switch entry.Operation {
 	// Some entry will be changed.
 	case Command:
-		holder := DataHolder{
-			Operation: entry.Operation,
-			Key:       entry.Key,
-			Content:   entry.Data,
-		}
-		message := Message{
-			MessageState: S3,
-			Timestamp:    entry.FinalTimestamp,
-			Data:         holder,
-			Extensions:   entry.Extensions,
-		}
-		data, err := json.Marshal(message)
+		data, err := json.Marshal(entry)
 		if err != nil {
 			return nil, err
 		}
-		if err := i.store.Set([]byte(holder.Key), data); err != nil {
+		if err := i.store.Set(entry.Key, data); err != nil {
 			return nil, err
 		}
-		return message, nil
+		return entry, nil
 	// Read an entry.
 	case Query:
-		data, err := i.store.Get([]byte(entry.Key))
+		data, err := i.store.Get(entry.Key)
 		if err != nil {
 			return nil, err
 		}
