@@ -29,6 +29,7 @@ jobs:
         host port: 5672
         rabbitmq user: 'guest'
         rabbitmq password: 'guest'
+        rabbitmq vhost: '/'
 
     - name: All
       run: make ci
