@@ -148,6 +148,10 @@ type Message struct {
 
 	// Partitions that participate on the request.
 	Destination []Partition
+
+	// How many partitions are participating on this
+	// request.
+	Partitions int
 }
 
 // Extract the message header.

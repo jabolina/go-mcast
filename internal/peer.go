@@ -60,7 +60,7 @@ type Peer struct {
 
 	// When external requests exchange timestamp,
 	// this will hold the received values.
-	received []uint64
+	received *Memo
 
 	// The peer cancellable context.
 	context context.Context
@@ -89,7 +89,7 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 		storage:       configuration.Storage,
 		conflict:      configuration.Conflict,
 		log:           log,
-		received:      []uint64{},
+		received:      NewMemo(),
 		context:       ctx,
 		finish:        done,
 	}
@@ -147,6 +147,7 @@ func (p *Peer) poll() {
 		case <-p.context.Done():
 			return
 		case m := <-p.transport.Listen():
+			p.log.Infof("received message %#v", m)
 			p.process(m)
 		case commit := <-p.deliver.Listen():
 			p.rqueue.Dequeue(Message{Identifier: commit.Identifier})
@@ -179,6 +180,7 @@ func (p Peer) process(message Message) {
 		p.doDeliver()
 	}()
 
+	p.log.Debugf("processing request %v", message)
 	switch header.Type {
 	case Initial:
 		valid = true
@@ -251,16 +253,19 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	p.received = append(p.received, message.Timestamp)
-	tsm := MaxValue(p.received)
+	p.received.Insert(message.Identifier, message.Timestamp)
+	values := p.received.Read(message.Identifier)
+	if len(values) < message.Partitions {
+		return
+	}
+
+	tsm := MaxValue(values)
 	if message.Timestamp >= tsm {
 		message.State = S3
 	} else {
 		message.Timestamp = tsm
 		message.State = S2
 	}
-
-	p.send(*message, Initial)
 }
 
 // Used to send a request using the transport API.
@@ -268,7 +273,16 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 // message timestamp.
 func (p Peer) send(message Message, t MessageType) {
 	message.Header.Type = t
-	p.transport.Broadcast(message)
+	var otherPartitions []Partition
+	for _, partition := range message.Destination {
+		if partition != p.configuration.Partition {
+			otherPartitions = append(otherPartitions, partition)
+		}
+	}
+	message.Destination = otherPartitions
+	if err := p.transport.Broadcast(message); err != nil {
+		p.log.Errorf("failed exchanging request %v. %v", message, err)
+	}
 }
 
 // Start the deliver process of the ready messages.

@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -45,7 +46,7 @@ func NewUnity(configuration *Configuration) (Unity, error) {
 	var peers []PartitionPeer
 	for i := 0; i < configuration.Replication; i++ {
 		pc := &PeerConfiguration{
-			Name:      GenerateUID(),
+			Name:      fmt.Sprintf("%s-%d", configuration.Name, i),
 			Partition: configuration.Name,
 			Version:   configuration.Version,
 			Invoker:   invk,
@@ -86,8 +87,10 @@ func (p *PeerUnity) Write(request Request) (UID, error) {
 		State:       S0,
 		Timestamp:   0,
 		Destination: request.Destination,
+		Partitions:  len(request.Destination),
 	}
 	peer := p.resolveNextPeer()
+	p.configuration.Logger.Infof("sending request %#v to %v", request, peer)
 	return id, peer.Transport().Broadcast(message)
 }
 

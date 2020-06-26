@@ -47,10 +47,7 @@ func NewTransport(peer *PeerConfiguration, log Logger) (Transport, error) {
 	conf := relt.DefaultReltConfiguration()
 	conf.Name = peer.Name
 	conf.Exchange = relt.GroupAddress(peer.Partition)
-	r, err := relt.NewRelt(*conf)
-	if err != nil {
-		return nil, err
-	}
+	r := relt.NewRelt(*conf)
 	ctx, done := context.WithCancel(context.Background())
 	t := &ReliableTransport{
 		log:      log,
@@ -75,6 +72,7 @@ func (r *ReliableTransport) Broadcast(message Message) error {
 			Address: relt.GroupAddress(partition),
 			Data:    data,
 		}
+		r.log.Infof("broadcasting message %#v to %s", m, partition)
 		if err = r.relt.Broadcast(m); err != nil {
 			r.log.Errorf("failed sending %#v. %v", m, err)
 			return err
@@ -116,7 +114,7 @@ func (r *ReliableTransport) consume(recv relt.Recv) {
 
 	var m Message
 	if err := json.Unmarshal(recv.Data, &m); err != nil {
-		r.log.Errorf("failed unmarshalling message. %v", err)
+		r.log.Errorf("failed unmarshalling message %#v. %v", recv, err)
 		return
 	}
 	r.producer <- m
