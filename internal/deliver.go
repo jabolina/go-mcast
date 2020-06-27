@@ -66,6 +66,10 @@ func (d Deliver) Deliver(messages []Message) {
 		}
 	}
 
+	if len(ready) == 0 {
+		return
+	}
+
 	// This is the first verification and attempt to deliver messages
 	// that are already on state S3 and do not conflicts with other messages.
 	// For each message committed, since the channel is closed, the entry
@@ -121,10 +125,10 @@ func (d Deliver) Commit(m Message) {
 		res.Failure = err
 	} else {
 		switch c := commit.(type) {
-		case Message:
+		case *Entry:
 			res.Success = true
-			res.Data = c.Content.Content
-			res.Extra = c.Content.Extensions
+			res.Data = c.Data
+			res.Extra = c.Extensions
 		default:
 			res.Success = false
 			res.Failure = fmt.Errorf("commit unknown response. %#v", c)

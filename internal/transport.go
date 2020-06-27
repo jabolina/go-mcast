@@ -43,6 +43,7 @@ type ReliableTransport struct {
 	finish context.CancelFunc
 }
 
+// Create a new instance of the transport interface.
 func NewTransport(peer *PeerConfiguration, log Logger) (Transport, error) {
 	conf := relt.DefaultReltConfiguration()
 	conf.Name = peer.Name
@@ -60,6 +61,7 @@ func NewTransport(peer *PeerConfiguration, log Logger) (Transport, error) {
 	return t, nil
 }
 
+// ReliableTransport implements Transport interface.
 func (r *ReliableTransport) Broadcast(message Message) error {
 	data, err := json.Marshal(message)
 	if err != nil {
@@ -72,7 +74,7 @@ func (r *ReliableTransport) Broadcast(message Message) error {
 			Address: relt.GroupAddress(partition),
 			Data:    data,
 		}
-		r.log.Infof("broadcasting message %#v to %s", m, partition)
+		r.log.Debugf("broadcasting message to %s", partition)
 		if err = r.relt.Broadcast(m); err != nil {
 			r.log.Errorf("failed sending %#v. %v", m, err)
 			return err
@@ -81,16 +83,23 @@ func (r *ReliableTransport) Broadcast(message Message) error {
 	return nil
 }
 
+// ReliableTransport implements Transport interface.
 func (r *ReliableTransport) Listen() <-chan Message {
 	return r.producer
 }
 
+// ReliableTransport implements Transport interface.
 func (r *ReliableTransport) Close() {
 	defer close(r.producer)
 	r.relt.Close()
 	r.finish()
 }
 
+// This method will keep polling until
+// the transport context cancelled.
+// The messages that arrives through the underlying
+// transport channel will be sent to the consume
+// method to be parsed and publish to the listeners.
 func (r ReliableTransport) poll() {
 	for {
 		select {
@@ -102,6 +111,9 @@ func (r ReliableTransport) poll() {
 	}
 }
 
+// Consume will receive a message from the transport
+// and will parse into a valid object to be consumed
+// by the channel listener.
 func (r *ReliableTransport) consume(recv relt.Recv) {
 	if recv.Error != nil {
 		r.log.Errorf("failed consuming message. %v", recv.Error)

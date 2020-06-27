@@ -1,6 +1,8 @@
 package internal
 
-import "sync"
+import (
+	"sync"
+)
 
 // A Queue interface.
 type Queue interface {
@@ -72,12 +74,14 @@ func (r *RQueue) Dequeue(i interface{}) interface{} {
 	switch m := i.(type) {
 	case Message:
 		v, ok := r.values[m.Identifier]
+		delete(r.values, m.Identifier)
 		if !ok {
 			return nil
 		}
 		return v
 	case *Message:
 		v, ok := r.values[m.Identifier]
+		delete(r.values, m.Identifier)
 		if !ok {
 			return nil
 		}

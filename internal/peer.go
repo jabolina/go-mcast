@@ -157,7 +157,9 @@ func (p *Peer) poll() {
 				p.process(m)
 			})
 		case commit := <-p.deliver.Listen():
-			p.log.Debugf("message committed. %v", commit)
+			if commit.Failure != nil {
+				p.log.Errorf("failed commit. %v", commit.Failure)
+			}
 			p.rqueue.Dequeue(Message{Identifier: commit.Identifier})
 			p.received.Remove(commit.Identifier)
 		}
@@ -189,7 +191,7 @@ func (p Peer) process(message Message) {
 		p.doDeliver()
 	}()
 
-	p.log.Debugf("processing request %v", message)
+	p.log.Debugf("processing request %#v", message)
 	switch header.Type {
 	case Initial:
 		valid = true

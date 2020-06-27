@@ -35,20 +35,28 @@ func CreatePartitionName(name string) internal.Partition {
 // Create a new write request, to write value given value and extra
 // associated with the given key, the request will be sent
 // to the given destinations.
-func NewWriteRequest(key, value, extra []byte, destination []internal.Partition) *internal.Request {
+func NewWriteRequest(key, value, extra []byte, destination []string) *internal.Request {
+	var partitions []internal.Partition
+	for _, s := range destination {
+		partitions = append(partitions, internal.Partition(s))
+	}
 	return &internal.Request{
 		Key:         key,
 		Value:       value,
 		Extra:       extra,
-		Destination: destination,
+		Destination: partitions,
 	}
 }
 
 // Creates a read request, to read the given key for one of the
 // given destinations.
-func NewReadRequest(key []byte, destination []internal.Partition) *internal.Request {
+func NewReadRequest(key []byte, destination []string) *internal.Request {
+	var partitions []internal.Partition
+	for _, s := range destination {
+		partitions = append(partitions, internal.Partition(s))
+	}
 	return &internal.Request{
-		Key: key,
-		Destination: destination,
+		Key:         key,
+		Destination: partitions,
 	}
 }
