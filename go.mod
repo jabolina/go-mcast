@@ -1,4 +1,4 @@
-module go-mcast
+module github.com/jabolina/go-mcast
 
 go 1.14
 
