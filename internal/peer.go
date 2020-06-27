@@ -13,6 +13,11 @@ type PartitionPeer interface {
 	Transport() Transport
 
 	// A fast read directly into the storage.
+	// Since all peers will be consistent, the read
+	// operations can be done directly into the storage.
+	//
+	// See that if a write was issued, is not guaranteed
+	// that the read will be executed after the write.
 	FastRead(request Request) (Response, error)
 
 	// Stop the peer.
@@ -147,10 +152,14 @@ func (p *Peer) poll() {
 		case <-p.context.Done():
 			return
 		case m := <-p.transport.Listen():
-			p.log.Infof("received message %#v", m)
-			p.process(m)
+			p.log.Debugf("received message %#v", m)
+			p.configuration.Invoker.invoke(func() {
+				p.process(m)
+			})
 		case commit := <-p.deliver.Listen():
+			p.log.Debugf("message committed. %v", commit)
 			p.rqueue.Dequeue(Message{Identifier: commit.Identifier})
+			p.received.Remove(commit.Identifier)
 		}
 	}
 }
@@ -168,7 +177,7 @@ func (p *Peer) poll() {
 func (p Peer) process(message Message) {
 	header := message.Extract()
 	if header.ProtocolVersion != p.configuration.Version {
-		p.log.Warnf("peer not processing message %s on version %d", message.Identifier, header.ProtocolVersion)
+		p.log.Warnf("peer not processing message %v on version %d", message, header.ProtocolVersion)
 		return
 	}
 
