@@ -26,3 +26,29 @@ func DefaultConfiguration(name internal.Partition) *internal.Configuration {
 		Logger:      NewDefaultLogger(),
 	}
 }
+
+// Creates a new partition name for the given string value.
+func CreatePartitionName(name string) internal.Partition {
+	return internal.Partition(name)
+}
+
+// Create a new write request, to write value given value and extra
+// associated with the given key, the request will be sent
+// to the given destinations.
+func NewWriteRequest(key, value, extra []byte, destination []internal.Partition) *internal.Request {
+	return &internal.Request{
+		Key:         key,
+		Value:       value,
+		Extra:       extra,
+		Destination: destination,
+	}
+}
+
+// Creates a read request, to read the given key for one of the
+// given destinations.
+func NewReadRequest(key []byte, destination []internal.Partition) *internal.Request {
+	return &internal.Request{
+		Key: key,
+		Destination: destination,
+	}
+}
