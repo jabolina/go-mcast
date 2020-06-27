@@ -17,6 +17,12 @@ type Transport interface {
 	// will be a total order broadcast.
 	Broadcast(message Message) error
 
+	// Unicast the message to a single partition.
+	// This do not need to be a reliable transport, since
+	// a partition contains a majority of correct processes
+	// at least 1 process will receive the message.
+	Unicast(message Message, partition Partition) error
+
 	// Listen for messages that arrives on the transport.
 	Listen() <-chan Message
 
@@ -81,6 +87,21 @@ func (r *ReliableTransport) Broadcast(message Message) error {
 		}
 	}
 	return nil
+}
+
+// ReliableTransport implements Transport interface.
+func (r *ReliableTransport) Unicast(message Message, partition Partition) error {
+	data, err := json.Marshal(message)
+	if err != nil {
+		log.Errorf("failed marshalling unicast message %#v. %v", message, err)
+	}
+
+	m := relt.Send{
+		Address: relt.GroupAddress(partition),
+		Data:    data,
+	}
+	r.log.Debugf("unicasting %#v message to %s", message, partition)
+	return r.relt.Broadcast(m)
 }
 
 // ReliableTransport implements Transport interface.

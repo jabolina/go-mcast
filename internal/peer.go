@@ -187,16 +187,19 @@ func (p Peer) process(message Message) {
 	defer func() {
 		if valid {
 			p.rqueue.Enqueue(message)
+		} else {
+			p.log.Debugf("invalid message")
 		}
 		p.doDeliver()
 	}()
 
-	p.log.Debugf("processing request %#v", message)
 	switch header.Type {
 	case Initial:
+		p.log.Debugf("processing internal request %#v", message)
 		valid = true
 		p.processInitialMessage(&message)
 	case External:
+		p.log.Debugf("processing external request %#v", message)
 		valid = true
 		p.exchangeTimestamp(&message)
 	default:
@@ -290,9 +293,11 @@ func (p Peer) send(message Message, t MessageType) {
 			otherPartitions = append(otherPartitions, partition)
 		}
 	}
-	message.Destination = otherPartitions
-	if err := p.transport.Broadcast(message); err != nil {
-		p.log.Errorf("failed exchanging request %v. %v", message, err)
+
+	for _, partition := range otherPartitions {
+		for err := p.transport.Unicast(message, partition); err != nil; {
+			p.log.Errorf("error unicast %s to partition %s. %v", message.Identifier, partition, err)
+		}
 	}
 }
 
