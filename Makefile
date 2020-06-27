@@ -13,12 +13,12 @@ else
 endif
 
 test_rule: # @HELP execute tests
-	echo "executing tests"
+	@echo "executing tests"
 	GOTRACEBACK=all go test $(TESTARGS) -timeout=120s -race ./test/...
 	GOTRACEBACK=all go test $(TESTARGS) -timeout=120s -tags batchtest -race ./test/...
 
 lint: # @HELP lint files and format if possible
-	echo "executing linter"
+	@echo "executing linter"
 	gofmt -s -w .
 	GO111MODULE=on golangci-lint run -c .golangci-lint.yml $(FMT) ./...
 
@@ -26,7 +26,7 @@ dep-linter: # @HELP install the linter dependency
 	curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | sh -s -- -b $(ENV)/bin $(GOLANG_CI_VERSION)
 
 deps: # @HELP install dependencies
-	echo "getting dependencies"
+	@echo "getting dependencies"
 	go get -t -d -v ./...
 
 build: # @HELP build the packages

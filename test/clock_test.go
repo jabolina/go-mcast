@@ -1,7 +1,7 @@
 package test
 
 import (
-	"go-mcast/internal"
+	"github.com/jabolina/go-mcast/internal"
 	"sync"
 	"testing"
 )

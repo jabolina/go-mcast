@@ -2,8 +2,8 @@ package test
 
 import (
 	"fmt"
-	"go-mcast/internal"
-	"go-mcast/pkg/mcast"
+	"github.com/jabolina/go-mcast/internal"
+	"github.com/jabolina/go-mcast/pkg/mcast"
 	"sync"
 	"testing"
 )

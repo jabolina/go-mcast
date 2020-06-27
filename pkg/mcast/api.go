@@ -1,6 +1,6 @@
 package mcast
 
-import "go-mcast/internal"
+import "github.com/jabolina/go-mcast/internal"
 
 // Creates a new multicast instance for the partition with the
 // given name. This will use the default configuration.

@@ -1,8 +1,6 @@
 package mcast
 
-import (
-	"go-mcast/internal"
-)
+import "github.com/jabolina/go-mcast/internal"
 
 // A default structure for the conflict relationship
 // that will always conflict.

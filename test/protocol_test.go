@@ -2,7 +2,7 @@ package test
 
 import (
 	"bytes"
-	"go-mcast/internal"
+	"github.com/jabolina/go-mcast/internal"
 	"testing"
 	"time"
 )
