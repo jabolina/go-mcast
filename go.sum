@@ -77,6 +77,8 @@ github.com/jabolina/relt v0.0.2-0.20200623010817-03739a03945d h1:qu2gKElTUBMvHOA
 github.com/jabolina/relt v0.0.2-0.20200623010817-03739a03945d/go.mod h1:Ji6nozlYWi9feBjLV9nR6jVeH53ULoOu1/z03lAdK1o=
 github.com/jabolina/relt v0.0.3 h1:oPWVlxGDB+3+Xf0WQVfUF9xhS7fhDy2BL2qYMA34Rk0=
 github.com/jabolina/relt v0.0.3/go.mod h1:dcTEDvZbYHigcglQWItNpkG23aJGIKxY5jNrAPW0158=
+github.com/jabolina/relt v0.0.4 h1:MfDVUl20qq/GDweyigzEsym6aGR/lI+cX13BrcaYnjY=
+github.com/jabolina/relt v0.0.4/go.mod h1:dcTEDvZbYHigcglQWItNpkG23aJGIKxY5jNrAPW0158=
 github.com/kisielk/errcheck v1.2.0/go.mod h1:/BMXB+zMLi60iA8Vv6Ksmxu/1UDYcXs4uQLJ+jE2L00=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/konsorten/go-windows-terminal-sequences v1.0.3 h1:CE8S1cTafDpPvMhIxNJKvHsGVBgn1xWYf1NbHQhywc8=
