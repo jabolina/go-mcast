@@ -54,14 +54,14 @@ type Configuration struct {
 // Invoker is responsible for handling
 // goroutines.
 type Invoker struct {
-	group *sync.WaitGroup
+	Group *sync.WaitGroup
 }
 
 // Spawn a new goroutine and manage through the SyncGroup.
 func (i *Invoker) invoke(f func()) {
-	i.group.Add(1)
+	i.Group.Add(1)
 	go func() {
-		defer i.group.Done()
+		defer i.Group.Done()
 		f()
 	}()
 }

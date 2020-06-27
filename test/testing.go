@@ -10,7 +10,7 @@ import (
 
 type UnityCluster struct {
 	T       *testing.T
-	Unities []internal.Unity
+	Unities []mcast.Unity
 	group   *sync.WaitGroup
 }
 
@@ -23,7 +23,7 @@ func (c *UnityCluster) Off() {
 	c.group.Wait()
 }
 
-func CreateUnity(name internal.Partition, t *testing.T) internal.Unity {
+func CreateUnity(name internal.Partition, t *testing.T) mcast.Unity {
 	conf := mcast.DefaultConfiguration(name)
 	conf.Logger.ToggleDebug(true)
 	unity, err := mcast.NewMulticastConfigured(conf)
@@ -38,7 +38,7 @@ func CreateCluster(clusterSize int, prefix string, t *testing.T) *UnityCluster {
 		T:     t,
 		group: &sync.WaitGroup{},
 	}
-	var unities []internal.Unity
+	var unities []mcast.Unity
 	for i := 0; i < clusterSize; i++ {
 		unities = append(unities, CreateUnity(internal.Partition(fmt.Sprintf("%s-%s", prefix, internal.GenerateUID())), t))
 	}
@@ -46,7 +46,7 @@ func CreateCluster(clusterSize int, prefix string, t *testing.T) *UnityCluster {
 	return cluster
 }
 
-func (c *UnityCluster) PoweroffUnity(unity internal.Unity) {
+func (c *UnityCluster) PoweroffUnity(unity mcast.Unity) {
 	defer c.group.Done()
 	unity.Shutdown()
 }

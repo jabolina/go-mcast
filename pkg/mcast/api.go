@@ -4,13 +4,13 @@ import "github.com/jabolina/go-mcast/internal"
 
 // Creates a new multicast instance for the partition with the
 // given name. This will use the default configuration.
-func NewMulticast(name internal.Partition) (internal.Unity, error) {
+func NewMulticast(name internal.Partition) (Unity, error) {
 	return NewMulticastConfigured(DefaultConfiguration(name))
 }
 
 // Create a new multicast instance using the given configuration.
-func NewMulticastConfigured(configuration *internal.Configuration) (internal.Unity, error) {
-	return internal.NewUnity(configuration)
+func NewMulticastConfigured(configuration *internal.Configuration) (Unity, error) {
+	return NewUnity(configuration)
 }
 
 // Creates the default configuration for a partition with the given
