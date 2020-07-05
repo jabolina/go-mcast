@@ -67,6 +67,10 @@ type Peer struct {
 	// this will hold the received values.
 	received *Memo
 
+	// When a message state is updated locally
+	// and need to trigger the process again.
+	updated chan Message
+
 	// The peer cancellable context.
 	context context.Context
 
@@ -95,6 +99,7 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 		conflict:      configuration.Conflict,
 		log:           log,
 		received:      NewMemo(),
+		updated:       make(chan Message),
 		context:       ctx,
 		finish:        done,
 	}
@@ -151,11 +156,10 @@ func (p *Peer) poll() {
 		select {
 		case <-p.context.Done():
 			return
+		case m := <-p.updated:
+			p.send(m, Initial, true)
 		case m := <-p.transport.Listen():
-			p.log.Debugf("received message %#v", m)
-			p.configuration.Invoker.invoke(func() {
-				p.process(m)
-			})
+			p.process(m)
 		case commit := <-p.deliver.Listen():
 			if commit.Failure != nil {
 				p.log.Errorf("failed commit. %v", commit.Failure)
@@ -183,12 +187,10 @@ func (p Peer) process(message Message) {
 		return
 	}
 
-	valid := false
 	defer func() {
-		if valid {
-			p.rqueue.Enqueue(message)
-		} else {
-			p.log.Debugf("invalid message")
+		p.rqueue.Enqueue(message)
+		if message.State == S0 || message.State == S2 {
+			p.updated <- message
 		}
 		p.doDeliver()
 	}()
@@ -196,11 +198,9 @@ func (p Peer) process(message Message) {
 	switch header.Type {
 	case Initial:
 		p.log.Debugf("processing internal request %#v", message)
-		valid = true
 		p.processInitialMessage(&message)
 	case External:
 		p.log.Debugf("processing external request %#v", message)
-		valid = true
 		p.exchangeTimestamp(&message)
 	default:
 		p.log.Warnf("unknown message type %d", header.Type)
@@ -240,7 +240,7 @@ func (p *Peer) processInitialMessage(message *Message) {
 		if message.State == S0 {
 			message.State = S1
 			message.Timestamp = p.clock.Tock()
-			p.send(*message, External)
+			p.send(*message, External, false)
 		} else if message.State == S2 {
 			message.State = S3
 			if message.Timestamp > p.clock.Tock() {
@@ -267,9 +267,9 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	p.received.Insert(message.Identifier, message.Timestamp)
+	p.received.Insert(message.Identifier, message.From, message.Timestamp)
 	values := p.received.Read(message.Identifier)
-	if len(values) < message.Partitions {
+	if len(values) < len(message.Destination)-1 {
 		return
 	}
 
@@ -279,21 +279,24 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 	} else {
 		message.Timestamp = tsm
 		message.State = S2
+		message.Header.Type = Initial
 	}
 }
 
 // Used to send a request using the transport API.
 // Used for request across partitions, when exchanging the
 // message timestamp.
-func (p Peer) send(message Message, t MessageType) {
+func (p Peer) send(message Message, t MessageType, broadcast bool) {
 	message.Header.Type = t
 	var otherPartitions []Partition
 	for _, partition := range message.Destination {
-		if partition != p.configuration.Partition {
+		if partition != p.configuration.Partition || broadcast {
 			otherPartitions = append(otherPartitions, partition)
 		}
 	}
 
+	p.log.Debugf("sending to %v", otherPartitions)
+	message.From = p.configuration.Partition
 	for _, partition := range otherPartitions {
 		for err := p.transport.Unicast(message, partition); err != nil; {
 			p.log.Errorf("error unicast %s to partition %s. %v", message.Identifier, partition, err)

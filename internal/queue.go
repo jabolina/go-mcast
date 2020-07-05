@@ -52,7 +52,7 @@ func (r *RQueue) Enqueue(i interface{}) {
 	case *Message:
 		r.values[m.Identifier] = *m
 	default:
-		panic("value is not a Message")
+		return
 	}
 }
 
@@ -87,7 +87,7 @@ func (r *RQueue) Dequeue(i interface{}) interface{} {
 		}
 		return v
 	default:
-		panic("type is not a Message")
+		return i
 	}
 }
 

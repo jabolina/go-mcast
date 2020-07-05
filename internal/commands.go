@@ -29,14 +29,6 @@ type MessageState uint8
 type MessageType uint8
 
 const (
-	// A command operation will change the a state on the
-	// protocol state machine.
-	Command Operation = "command"
-
-	// A query operation will only read a value on the
-	// protocol state machine.
-	Query Operation = "query"
-
 	// Message do not have a timestamp yet.
 	S0 MessageState = iota
 
@@ -60,6 +52,14 @@ const (
 
 	// Defines the latest protocol version
 	LatestProtocolVersion = 0
+
+	// A command operation will change the a state on the
+	// protocol state machine.
+	Command Operation = "command"
+
+	// A query operation will only read a value on the
+	// protocol state machine.
+	Query Operation = "query"
 )
 
 // Internal use only, to transport any specific
@@ -149,9 +149,8 @@ type Message struct {
 	// Partitions that participate on the request.
 	Destination []Partition
 
-	// How many partitions are participating on this
-	// request.
-	Partitions int
+	// Partition who sent the message.
+	From Partition
 }
 
 // Extract the message header.

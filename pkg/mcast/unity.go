@@ -88,10 +88,10 @@ func (p *peerUnity) Write(request internal.Request) (internal.UID, error) {
 		State:       internal.S0,
 		Timestamp:   0,
 		Destination: request.Destination,
-		Partitions:  len(request.Destination),
+		From:        p.configuration.Name,
 	}
 	peer := p.resolveNextPeer()
-	p.configuration.Logger.Infof("sending request %#v to %v", request, peer)
+	p.configuration.Logger.Infof("sending request %#v", request)
 	return id, peer.Transport().Broadcast(message)
 }
 

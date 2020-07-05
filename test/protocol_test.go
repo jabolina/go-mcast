@@ -35,13 +35,12 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 		Destination: []internal.Partition{partitionName},
 	}
 
-	time.Sleep(5 * time.Second)
 	id, err := unity.Write(write)
 	if err != nil {
 		t.Fatalf("failed writing request %v. %v", write, err)
 	}
 
-	time.Sleep(5 * time.Second)
+	time.Sleep(time.Second)
 
 	// Now that the write request succeeded the value will
 	// be queried back for validation.
