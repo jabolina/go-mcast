@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
 
 // Interface to deliver messages.
@@ -70,11 +71,29 @@ func (d Deliver) Deliver(messages []Message) {
 		return
 	}
 
+	// First the messages that are ready to be delivered will be sorted.
+	// The messages will be sorted by the final timestamp, if exists messages
+	// with the same timestamp then the messages will be sorted by the given
+	// unique identifier, sorting by a string comparison.
+	sorted := make([]Message, 0, len(ready))
+	for _, message := range ready {
+		sorted = append(sorted, message)
+	}
+
+	sort.Slice(sorted, func(i, j int) bool {
+		a := sorted[i]
+		b := sorted[j]
+		if a.Timestamp == b.Timestamp {
+			return strings.Compare(string(a.Identifier), string(b.Identifier)) < 0
+		}
+		return sorted[i].Timestamp < sorted[j].Timestamp
+	})
+
 	// This is the first verification and attempt to deliver messages
 	// that are already on state S3 and do not conflicts with other messages.
 	// For each message committed, since the channel is closed, the entry
 	// will be removed for the snapshot.
-	for _, m := range ready {
+	for _, m := range sorted {
 		if d.deliverNonConflicting(m, ready, messages) {
 			delete(ready, m.Identifier)
 		}
