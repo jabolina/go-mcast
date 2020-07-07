@@ -86,6 +86,11 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 		return nil, err
 	}
 
+	deliver, err := NewDeliver(log, configuration.Conflict, configuration.Storage)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx, done := context.WithCancel(context.Background())
 	p := &Peer{
 		mutex:         &sync.Mutex{},
@@ -94,7 +99,7 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 		clock:         &ProcessClock{},
 		rqueue:        NewQueue(),
 		previousSet:   NewPreviousSet(),
-		deliver:       NewDeliver(log, configuration.Conflict, configuration.Storage),
+		deliver:       deliver,
 		storage:       configuration.Storage,
 		conflict:      configuration.Conflict,
 		log:           log,

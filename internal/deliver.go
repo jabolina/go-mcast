@@ -37,13 +37,17 @@ type Deliver struct {
 }
 
 // Creates a new instance of the Deliverable interface.
-func NewDeliver(log Logger, conflict ConflictRelationship, storage Storage) Deliverable {
+func NewDeliver(log Logger, conflict ConflictRelationship, storage Storage) (Deliverable, error) {
+	sm := NewStateMachine(storage)
+	if err := sm.Restore(); err != nil {
+		return nil, err
+	}
 	return &Deliver{
 		onCommit: make(chan Response),
 		conflict: conflict,
-		sm:       NewStateMachine(storage),
+		sm:       sm,
 		log:      log,
-	}
+	}, nil
 }
 
 // Start the deliver sequence for the given message slice.

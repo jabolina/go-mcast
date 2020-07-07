@@ -3,7 +3,6 @@ package internal
 import (
 	"encoding/json"
 	"errors"
-	"io"
 )
 
 var (
@@ -17,7 +16,7 @@ type StateMachine interface {
 	Commit(*Entry) (interface{}, error)
 
 	// Restores the state machine back to a given a state.
-	Restore(closer io.ReadCloser) error
+	Restore() error
 }
 
 // A in memory default value to be used.
@@ -58,8 +57,8 @@ func (i *InMemoryStateMachine) Commit(entry *Entry) (interface{}, error) {
 	}
 }
 
-func (i *InMemoryStateMachine) Restore(closer io.ReadCloser) error {
-	panic("implement me")
+func (i *InMemoryStateMachine) Restore() error {
+	return nil
 }
 
 // Create the new state machine using the given storage
