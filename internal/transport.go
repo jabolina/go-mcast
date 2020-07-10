@@ -12,9 +12,6 @@ import (
 type Transport interface {
 	// Reliably deliver the message to all correct processes
 	// in the same order.
-	// The protocol definition requires this to be a generic
-	// broadcast communication primitive, but the one used here
-	// will be a total order broadcast.
 	Broadcast(message Message) error
 
 	// Unicast the message to a single partition.

@@ -6,11 +6,26 @@ import (
 	"sync"
 )
 
+// An observer that waits until the issued request
+// is committed by one of the peers.
+// When the response is committed it will be sent
+// back through the observer channel.
+type observer struct {
+	// Request UID.
+	uid UID
+
+	// Channel to notify the response back.
+	notify chan Response
+}
+
 // Interface that a single peer must implement.
 type PartitionPeer interface {
-	// The peer transport. Used to send requests
-	// to the protocol.
-	Transport() Transport
+	// Issues a request to the Generic Multicast protocol.
+	//
+	// This method does not work in the request-response model
+	// so after the message is committed onto the unity
+	// a response will be sent back through the channel.
+	Command(message Message) <-chan Response
 
 	// A fast read directly into the storage.
 	// Since all peers will be consistent, the read
@@ -31,6 +46,10 @@ type PartitionPeer interface {
 type Peer struct {
 	// Mutex for synchronizing operations.
 	mutex *sync.Mutex
+
+	// Holds the observers that are waiting for a response
+	// from the issued request.
+	observers map[UID]observer
 
 	// Configuration for the peer.
 	configuration *PeerConfiguration
@@ -94,6 +113,7 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 	ctx, done := context.WithCancel(context.Background())
 	p := &Peer{
 		mutex:         &sync.Mutex{},
+		observers:     make(map[UID]observer),
 		configuration: configuration,
 		transport:     t,
 		clock:         &ProcessClock{},
@@ -113,8 +133,30 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 }
 
 // Implements the PartitionPeer interface.
-func (p *Peer) Transport() Transport {
-	return p.transport
+func (p *Peer) Command(message Message) <-chan Response {
+	res := make(chan Response, 1)
+	apply := func() {
+		err := p.transport.Broadcast(message)
+		if err != nil {
+			res <- Response{
+				Success:    false,
+				Identifier: message.Identifier,
+				Data:       message.Content.Content,
+				Extra:      message.Content.Extensions,
+				Failure:    err,
+			}
+		} else {
+			p.mutex.Lock()
+			defer p.mutex.Unlock()
+			obs := observer{
+				uid:    message.Identifier,
+				notify: res,
+			}
+			p.observers[message.Identifier] = obs
+		}
+	}
+	p.configuration.Invoker.invoke(apply)
+	return res
 }
 
 // Implements the PartitionPeer interface.
@@ -166,9 +208,14 @@ func (p *Peer) poll() {
 		case m := <-p.transport.Listen():
 			p.process(m)
 		case commit := <-p.deliver.Listen():
-			if commit.Failure != nil {
-				p.log.Errorf("failed commit. %v", commit.Failure)
+			p.mutex.Lock()
+			obs, ok := p.observers[commit.Identifier]
+			if ok {
+				obs.notify <- commit
+				close(obs.notify)
+				delete(p.observers, obs.uid)
 			}
+			p.mutex.Unlock()
 			p.rqueue.Dequeue(Message{Identifier: commit.Identifier})
 			p.received.Remove(commit.Identifier)
 		}
@@ -269,9 +316,6 @@ func (p *Peer) processInitialMessage(message *Message) {
 // avoided and, the state of m can jump directly to state S3 since the group local
 // clock is already bigger than tsm.
 func (p *Peer) exchangeTimestamp(message *Message) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
 	p.received.Insert(message.Identifier, message.From, message.Timestamp)
 	values := p.received.Read(message.Identifier)
 	if len(values) < len(message.Destination)-1 {

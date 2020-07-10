@@ -29,6 +29,12 @@ func NewMemo() *Memo {
 	}
 }
 
+// This method will try to insert the new vote for
+// the exchange timestamp onto the exchanged memo.
+// If other peer from the origin partition already
+// voted for a timestamp than the vote can be ignored,
+// since is needed only a single peer from each partition
+// to send the timestamp.
 func (m *Memo) Insert(key UID, from Partition, value uint64) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -58,12 +64,16 @@ func (m *Memo) Insert(key UID, from Partition, value uint64) {
 	}
 }
 
+// This method will remove the information
+// from the voted timestamp from the memo.
 func (m *Memo) Remove(key UID) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	delete(m.values, key)
 }
 
+// This method will return all proposed values
+// to a message.
 func (m *Memo) Read(key UID) []uint64 {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()

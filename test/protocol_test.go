@@ -35,12 +35,17 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 		Destination: []internal.Partition{partitionName},
 	}
 
-	id, err := unity.Write(write)
-	if err != nil {
-		t.Fatalf("failed writing request %v. %v", write, err)
+	obs := unity.Write(write)
+	select {
+	case res := <-obs:
+		if !res.Success {
+			t.Fatalf("failed writting request %v", res.Failure)
+			return
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("write timeout")
+		return
 	}
-
-	time.Sleep(time.Second)
 
 	// Now that the write request succeeded the value will
 	// be queried back for validation.
@@ -58,15 +63,16 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 		t.Fatalf("read operation failed. %v", res.Failure)
 	}
 
-	if id != res.Identifier {
-		t.Fatalf("response identifier should be %s but was %s", id, res.Identifier)
-	}
-
 	if !bytes.Equal(value, res.Data) {
 		t.Fatalf("retrieved response should be %s but was %s", string(value), string(res.Data))
 	}
 }
 
+// This will start two distinct partitions, a write command
+// will be applied on both partitions. The command will be
+// issued by one of the partitions.
+// After the commit the current value will be queried back
+// from another partition.
 func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 	partitionOne := internal.Partition("single-unity-one")
 	partitionTwo := internal.Partition("single-unity-two")
@@ -81,12 +87,17 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 		Destination: []internal.Partition{partitionOne, partitionTwo},
 	}
 
-	id, err := unityOne.Write(write)
-	if err != nil {
-		t.Fatalf("failed writing request %v. %v", write, err)
+	obs := unityOne.Write(write)
+	select {
+	case res := <-obs:
+		if !res.Success {
+			t.Fatalf("failed writting request %v", res.Failure)
+			return
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("write timeout")
+		return
 	}
-
-	time.Sleep(time.Second)
 
 	// Now that the write request succeeded the value will
 	// be queried back for validation.
@@ -102,10 +113,6 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 
 	if !res.Success {
 		t.Fatalf("read operation failed. %v", res.Failure)
-	}
-
-	if id != res.Identifier {
-		t.Fatalf("response identifier should be %s but was %s", id, res.Identifier)
 	}
 
 	if !bytes.Equal(value, res.Data) {
