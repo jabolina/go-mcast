@@ -119,3 +119,86 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 		t.Fatalf("retrieved response should be %s but was %s", string(value), string(res.Data))
 	}
 }
+
+// This will start two distinct partitions, a write command
+// will be applied only on a single partitions.
+// After the write is applied correctly, it will be verified
+// that the second partition do not contains the applied value
+// while the first partition contains.
+func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
+	partitionOne := internal.Partition("a-single-unity-one")
+	partitionTwo := internal.Partition("b-single-unity-two")
+	unityOne := CreateUnity(partitionOne, t)
+	unityTwo := CreateUnity(partitionTwo, t)
+	defer func() {
+		unityOne.Shutdown()
+		unityTwo.Shutdown()
+	}()
+
+	key := []byte("test-key")
+	value := []byte("test")
+	write := internal.Request{
+		Key:         key,
+		Value:       value,
+		Destination: []internal.Partition{partitionOne},
+	}
+
+	// First a value will be written on the state machine for
+	// only the first partition.
+	obs := unityOne.Write(write)
+	select {
+	case res := <-obs:
+		if !res.Success {
+			t.Fatalf("failed writting request %v", res.Failure)
+			return
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("write timeout")
+		return
+	}
+
+	// Now that the write request was applied to the first partition
+	// we verify that the second partition do not contains the applied
+	// value.
+	doNotExist := internal.Request{
+		Key:         key,
+		Destination: []internal.Partition{partitionOne, partitionTwo},
+	}
+
+	res, err := unityTwo.Read(doNotExist)
+	if err == nil {
+		t.Fatalf("read should have failed %v. %v", doNotExist, err)
+		return
+	}
+
+	if res.Success {
+		t.Fatalf("read operation succeded. %v", res.Failure)
+		return
+	}
+
+	if res.Data != nil && len(res.Data) > 0 {
+		t.Fatalf("read operation should not contain any value. %s", string(res.Data))
+		return
+	}
+
+	// Now that we verified that the second partition do not have the
+	// applied command, the first partition is verified and it must
+	// contains the applied request.
+	read := internal.Request{
+		Key:         key,
+		Destination: []internal.Partition{partitionOne, partitionTwo},
+	}
+
+	res, err = unityOne.Read(read)
+	if err != nil {
+		t.Fatalf("failed reading value %v. %v", read, err)
+	}
+
+	if !res.Success {
+		t.Fatalf("read operation failed. %v", res.Failure)
+	}
+
+	if !bytes.Equal(value, res.Data) {
+		t.Fatalf("retrieved response should be %s but was %s", string(value), string(res.Data))
+	}
+}

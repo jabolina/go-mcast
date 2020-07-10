@@ -149,5 +149,11 @@ func (r *ReliableTransport) consume(recv relt.Recv) {
 		r.log.Errorf("failed unmarshalling message %#v. %v", recv, err)
 		return
 	}
-	r.producer <- m
+
+	select {
+	case <-r.context.Done():
+		return
+	case r.producer <- m:
+		return
+	}
 }
