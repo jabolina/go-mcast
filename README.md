@@ -1,7 +1,7 @@
 # go-mcast
 ![Go](https://github.com/jabolina/go-mcast/workflows/Go/badge.svg?branch=master)
 
-Golang based implementation of the Atomic Multicast protocol
+Golang based implementation of the Generic Multicast protocol
 
 
 # Introduction

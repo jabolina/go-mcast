@@ -14,8 +14,8 @@ endif
 
 test_rule: # @HELP execute tests
 	@echo "executing tests"
-	GOTRACEBACK=all go test $(TESTARGS) -timeout=40s -race ./test/...
-	GOTRACEBACK=all go test $(TESTARGS) -timeout=40s -tags batchtest -race ./test/...
+	GOTRACEBACK=all go test $(TESTARGS) -count=1 -timeout=40s -race ./test/...
+	GOTRACEBACK=all go test $(TESTARGS) -count=1 -timeout=40s -tags batchtest -race ./test/...
 
 lint: # @HELP lint files and format if possible
 	@echo "executing linter"
@@ -33,8 +33,8 @@ build: # @HELP build the packages
 	sh $(PWD)/scripts/build.sh
 
 fuzz:
-	go test $(TESTARGS) -timeout=2m ./test/fuzzy
-	go test $(TESTARGS) -timeout=2m -tags batchtest ./test/fuzzy
+	go test $(TESTARGS) -count=5 -timeout=5m ./fuzzy
+	go test $(TESTARGS) -count=5 -timeout=5m -tags batchtest ./fuzzy
 
 ci: # @HELP executes on CI
 ci: deps test_rule fuzz dep-linter lint

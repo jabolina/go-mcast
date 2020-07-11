@@ -16,6 +16,10 @@ type observer struct {
 
 	// Channel to notify the response back.
 	notify chan Response
+
+	// This count how many times a response was
+	// obtained from the state machine.
+	committed int
 }
 
 // Interface that a single peer must implement.
@@ -105,12 +109,13 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 		return nil, err
 	}
 
-	deliver, err := NewDeliver(log, configuration.Conflict, configuration.Storage)
+	ctx, done := context.WithCancel(context.Background())
+	deliver, err := NewDeliver(ctx, log, configuration.Conflict, configuration.Storage)
 	if err != nil {
+		done()
 		return nil, err
 	}
 
-	ctx, done := context.WithCancel(context.Background())
 	p := &Peer{
 		mutex:         &sync.Mutex{},
 		observers:     make(map[UID]observer),
@@ -188,8 +193,11 @@ func (p *Peer) FastRead(request Request) (Response, error) {
 
 // Implements the PartitionPeer interface.
 func (p *Peer) Stop() {
-	defer p.transport.Close()
+	defer func() {
+		close(p.updated)
+	}()
 	p.finish()
+	p.transport.Close()
 }
 
 // This method will keep polling as long as the peer
@@ -203,11 +211,21 @@ func (p *Peer) poll() {
 		select {
 		case <-p.context.Done():
 			return
-		case m := <-p.updated:
+		case m, ok := <-p.updated:
+			if !ok {
+				return
+			}
 			p.send(m, Initial, true)
-		case m := <-p.transport.Listen():
+		case m, ok := <-p.transport.Listen():
+			if !ok {
+				return
+			}
 			p.process(m)
-		case commit := <-p.deliver.Listen():
+		case commit, ok := <-p.deliver.Listen():
+			if !ok {
+				return
+			}
+
 			p.mutex.Lock()
 			obs, ok := p.observers[commit.Identifier]
 			if ok {
@@ -242,7 +260,12 @@ func (p Peer) process(message Message) {
 	defer func() {
 		p.rqueue.Enqueue(message)
 		if message.State == S0 || message.State == S2 {
-			p.updated <- message
+			select {
+			case <-p.context.Done():
+				break
+			default:
+				p.updated <- message
+			}
 		}
 		p.doDeliver()
 	}()
@@ -319,6 +342,7 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 	p.received.Insert(message.Identifier, message.From, message.Timestamp)
 	values := p.received.Read(message.Identifier)
 	if len(values) < len(message.Destination)-1 {
+		p.log.Debugf("message %#v does not have needed timestamps", message)
 		return
 	}
 
@@ -337,6 +361,7 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 // message timestamp.
 func (p Peer) send(message Message, t MessageType, broadcast bool) {
 	message.Header.Type = t
+	message.From = p.configuration.Partition
 	var otherPartitions []Partition
 	for _, partition := range message.Destination {
 		if partition != p.configuration.Partition || broadcast {
@@ -344,8 +369,6 @@ func (p Peer) send(message Message, t MessageType, broadcast bool) {
 		}
 	}
 
-	p.log.Debugf("sending to %v", otherPartitions)
-	message.From = p.configuration.Partition
 	for _, partition := range otherPartitions {
 		for err := p.transport.Unicast(message, partition); err != nil; {
 			p.log.Errorf("error unicast %s to partition %s. %v", message.Identifier, partition, err)

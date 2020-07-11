@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/jabolina/relt/pkg/relt"
 	"github.com/prometheus/common/log"
+	"time"
 )
 
 // The transport interface providing the communication
@@ -75,12 +76,12 @@ func (r *ReliableTransport) Broadcast(message Message) error {
 		return err
 	}
 
+	r.log.Debugf("broadcasting message %#v", message)
 	for _, partition := range message.Destination {
 		m := relt.Send{
 			Address: relt.GroupAddress(partition),
 			Data:    data,
 		}
-		r.log.Debugf("broadcasting message %#v to %s", message, partition)
 		if err = r.relt.Broadcast(m); err != nil {
 			r.log.Errorf("failed sending %#v. %v", m, err)
 			return err
@@ -110,7 +111,6 @@ func (r *ReliableTransport) Listen() <-chan Message {
 
 // ReliableTransport implements Transport interface.
 func (r *ReliableTransport) Close() {
-	defer close(r.producer)
 	r.relt.Close()
 	r.finish()
 }
@@ -123,10 +123,13 @@ func (r *ReliableTransport) Close() {
 func (r ReliableTransport) poll() {
 	for {
 		select {
-		case recv := <-r.relt.Consume():
-			r.consume(recv)
 		case <-r.context.Done():
 			return
+		case recv, ok := <-r.relt.Consume():
+			if !ok {
+				return
+			}
+			r.consume(recv)
 		}
 	}
 }
@@ -135,6 +138,17 @@ func (r ReliableTransport) poll() {
 // and will parse into a valid object to be consumed
 // by the channel listener.
 func (r *ReliableTransport) consume(recv relt.Recv) {
+	defer func() {
+		if err := recover(); err != nil {
+			select {
+			case <-r.context.Done():
+				close(r.producer)
+			default:
+				r.consume(recv)
+			}
+		}
+	}()
+
 	if recv.Error != nil {
 		r.log.Errorf("failed consuming message. %v", recv.Error)
 		return
@@ -151,9 +165,9 @@ func (r *ReliableTransport) consume(recv relt.Recv) {
 	}
 
 	select {
-	case <-r.context.Done():
-		return
 	case r.producer <- m:
+		return
+	case <-time.After(250 * time.Millisecond):
 		return
 	}
 }

@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -23,6 +24,13 @@ type Deliverable interface {
 // The messages will be committed on the peer state machine
 // and a notification will be generated,
 type Deliver struct {
+	// Parent context of the delivery.
+	// The parent who instantiate the delivery is the peer that
+	// relies inside a partition, so for each peer will exists a
+	// deliver instance.
+	// When the peer is shutdown, also will be shutdown the deliver.
+	ctx context.Context
+
 	// Channel for commit notifications.
 	onCommit chan Response
 
@@ -37,12 +45,13 @@ type Deliver struct {
 }
 
 // Creates a new instance of the Deliverable interface.
-func NewDeliver(log Logger, conflict ConflictRelationship, storage Storage) (Deliverable, error) {
+func NewDeliver(ctx context.Context, log Logger, conflict ConflictRelationship, storage Storage) (Deliverable, error) {
 	sm := NewStateMachine(storage)
 	if err := sm.Restore(); err != nil {
 		return nil, err
 	}
 	return &Deliver{
+		ctx:      ctx,
 		onCommit: make(chan Response),
 		conflict: conflict,
 		sm:       sm,
@@ -158,7 +167,12 @@ func (d Deliver) Commit(m Message) {
 		}
 	}
 
-	d.onCommit <- res
+	select {
+	case <-d.ctx.Done():
+		return
+	case d.onCommit <- res:
+		return
+	}
 }
 
 func (d Deliver) Listen() <-chan Response {

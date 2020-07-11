@@ -47,6 +47,8 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 		return
 	}
 
+	time.Sleep(time.Second)
+
 	// Now that the write request succeeded the value will
 	// be queried back for validation.
 	read := internal.Request{
@@ -56,15 +58,15 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 
 	res, err := unity.Read(read)
 	if err != nil {
-		t.Fatalf("failed reading value %#v. %v", read, err)
+		t.Errorf("failed reading value %#v. %v", read, err)
 	}
 
 	if !res.Success {
-		t.Fatalf("read operation failed. %v", res.Failure)
+		t.Errorf("read operation failed. %v", res.Failure)
 	}
 
 	if !bytes.Equal(value, res.Data) {
-		t.Fatalf("retrieved response should be %s but was %s", string(value), string(res.Data))
+		t.Errorf("retrieved response should be %s but was %s", string(value), string(res.Data))
 	}
 }
 
@@ -99,6 +101,13 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 		return
 	}
 
+	// See that with the observer above we know that the value
+	// was committed in one of the peers inside one of the partitions
+	// but we cannot guarantee that is already applied on all of the
+	// partitions, this sleep is to avoid a sequential read the can
+	// possibly fail.
+	time.Sleep(time.Second)
+
 	// Now that the write request succeeded the value will
 	// be queried back for validation.
 	read := internal.Request{
@@ -108,15 +117,15 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 
 	res, err := unityTwo.Read(read)
 	if err != nil {
-		t.Fatalf("failed reading value %v. %v", read, err)
+		t.Errorf("failed reading value %#v. %v", read, err)
 	}
 
 	if !res.Success {
-		t.Fatalf("read operation failed. %v", res.Failure)
+		t.Errorf("read operation failed. %v", res.Failure)
 	}
 
 	if !bytes.Equal(value, res.Data) {
-		t.Fatalf("retrieved response should be %s but was %s", string(value), string(res.Data))
+		t.Errorf("retrieved response should be %s but was %s", string(value), string(res.Data))
 	}
 }
 
@@ -167,18 +176,15 @@ func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 
 	res, err := unityTwo.Read(doNotExist)
 	if err == nil {
-		t.Fatalf("read should have failed %v. %v", doNotExist, err)
-		return
+		t.Errorf("read should have failed %v. %v", doNotExist, err)
 	}
 
 	if res.Success {
-		t.Fatalf("read operation succeded. %v", res.Failure)
-		return
+		t.Errorf("read operation succeded. %v", res.Failure)
 	}
 
 	if res.Data != nil && len(res.Data) > 0 {
-		t.Fatalf("read operation should not contain any value. %s", string(res.Data))
-		return
+		t.Errorf("read operation should not contain any value. %s", string(res.Data))
 	}
 
 	// Now that we verified that the second partition do not have the
@@ -191,14 +197,14 @@ func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 
 	res, err = unityOne.Read(read)
 	if err != nil {
-		t.Fatalf("failed reading value %v. %v", read, err)
+		t.Errorf("failed reading value %v. %v", read, err)
 	}
 
 	if !res.Success {
-		t.Fatalf("read operation failed. %v", res.Failure)
+		t.Errorf("read operation failed. %v", res.Failure)
 	}
 
 	if !bytes.Equal(value, res.Data) {
-		t.Fatalf("retrieved response should be %s but was %s", string(value), string(res.Data))
+		t.Errorf("retrieved response should be %s but was %s", string(value), string(res.Data))
 	}
 }
