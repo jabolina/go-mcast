@@ -3,6 +3,7 @@ package fuzzy
 import (
 	"github.com/jabolina/go-mcast/test"
 	"log"
+	"sync"
 	"testing"
 	"time"
 )
@@ -49,4 +50,52 @@ func Test_SequentialCommands(t *testing.T) {
 
 	time.Sleep(time.Second)
 	cluster.DoesClusterMatchTo(key, []byte("Z"))
+}
+
+func Test_ConcurrentCommands(t *testing.T) {
+	cluster := test.CreateCluster(3, "concurrent", t)
+	defer func() {
+		ch := make(chan bool)
+		defer close(ch)
+		go func() {
+			cluster.Off()
+			ch <- true
+		}()
+		select {
+		case <-ch:
+			return
+		case <-time.After(30 * time.Second):
+			t.Error("failed shutdown cluster")
+			return
+		}
+	}()
+
+	key := []byte("alphabet")
+	group := sync.WaitGroup{}
+	write := func(val string) {
+		defer group.Done()
+		u := cluster.Next()
+		log.Printf("************************** sending %s **************************", val)
+		req := test.GenerateRequest(key, []byte(val), cluster.Names)
+		obs := u.Write(req)
+		select {
+		case res := <-obs:
+			if !res.Success {
+				t.Errorf("failed writting request %v", res.Failure)
+				break
+			}
+		case <-time.After(time.Second):
+			t.Errorf("write %s timeout %#v", val, req)
+			break
+		}
+	}
+
+	for _, content := range test.Alphabet {
+		group.Add(1)
+		go write(content)
+	}
+
+	group.Wait()
+	time.Sleep(30 * time.Second)
+	cluster.DoesAllClusterMatch(key)
 }

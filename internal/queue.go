@@ -18,6 +18,10 @@ type Queue interface {
 	// Create a snapshot of the current values
 	// on the queue.
 	Snapshot() []interface{}
+
+	Unsafe(func(interface{}))
+
+	Touched() bool
 }
 
 // Implements the queue interface.
@@ -32,6 +36,8 @@ type RQueue struct {
 
 	// Actual message values.
 	values map[UID]Message
+
+	changed bool
 }
 
 func NewQueue() Queue {
@@ -46,6 +52,7 @@ func (r *RQueue) Enqueue(i interface{}) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
+	r.changed = true
 	switch m := i.(type) {
 	case Message:
 		r.values[m.Identifier] = m
@@ -100,4 +107,17 @@ func (r *RQueue) Snapshot() []interface{} {
 		snapshot = append(snapshot, message)
 	}
 	return snapshot
+}
+
+func (r *RQueue) Unsafe(cb func(interface{})) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.changed = false
+	cb(r.values)
+}
+
+func (r *RQueue) Touched() bool {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	return r.changed
 }

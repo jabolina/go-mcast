@@ -29,6 +29,14 @@ func GenerateRequest(key, value []byte, partitions []internal.Partition) interna
 	}
 }
 
+func GenerateDataArray(size int) []string {
+	data := make([]string, size)
+	for i := 0; i < size; i++ {
+		data[i] = internal.GenerateUID()
+	}
+	return data
+}
+
 var Alphabet = []string{
 	"A",
 	"B",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 )
 
 // An observer that waits until the issued request
@@ -16,10 +17,6 @@ type observer struct {
 
 	// Channel to notify the response back.
 	notify chan Response
-
-	// This count how many times a response was
-	// obtained from the state machine.
-	committed int
 }
 
 // Interface that a single peer must implement.
@@ -110,7 +107,7 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 	}
 
 	ctx, done := context.WithCancel(context.Background())
-	deliver, err := NewDeliver(ctx, log, configuration.Conflict, configuration.Storage)
+	deliver, err := NewDeliver(configuration.Invoker, ctx, log, configuration.Conflict, configuration.Storage)
 	if err != nil {
 		done()
 		return nil, err
@@ -134,6 +131,7 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 		finish:        done,
 	}
 	p.configuration.Invoker.invoke(p.poll)
+	p.configuration.Invoker.invoke(p.doDeliver)
 	return p, nil
 }
 
@@ -215,12 +213,16 @@ func (p *Peer) poll() {
 			if !ok {
 				return
 			}
-			p.send(m, Initial, true)
+			p.configuration.Invoker.invoke(func() {
+				p.send(m, Initial, true)
+			})
 		case m, ok := <-p.transport.Listen():
 			if !ok {
 				return
 			}
-			p.process(m)
+			p.configuration.Invoker.invoke(func() {
+				p.process(m)
+			})
 		case commit, ok := <-p.deliver.Listen():
 			if !ok {
 				return
@@ -234,7 +236,7 @@ func (p *Peer) poll() {
 				delete(p.observers, obs.uid)
 			}
 			p.mutex.Unlock()
-			p.rqueue.Dequeue(Message{Identifier: commit.Identifier})
+			// p.rqueue.Dequeue(Message{Identifier: commit.Identifier})
 			p.received.Remove(commit.Identifier)
 		}
 	}
@@ -258,16 +260,7 @@ func (p Peer) process(message Message) {
 	}
 
 	defer func() {
-		p.rqueue.Enqueue(message)
-		if message.State == S0 || message.State == S2 {
-			select {
-			case <-p.context.Done():
-				break
-			default:
-				p.updated <- message
-			}
-		}
-		p.doDeliver()
+		p.finishMessageProcessing(&message)
 	}()
 
 	switch header.Type {
@@ -334,7 +327,7 @@ func (p *Peer) processInitialMessage(message *Message) {
 // Thus, after receiving all other timestamp values, a temporary variable tsm is
 // agree upon the maximum timestamp value received.
 //
-// Once the algorithm have select the ts m value, the process checks if m.Timestamp
+// Once the algorithm have select the tsm value, the process checks if m.Timestamp
 // is greater or equal to tsm, in positive case, a second consensus instance can be
 // avoided and, the state of m can jump directly to state S3 since the group local
 // clock is already bigger than tsm.
@@ -342,7 +335,6 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 	p.received.Insert(message.Identifier, message.From, message.Timestamp)
 	values := p.received.Read(message.Identifier)
 	if len(values) < len(message.Destination)-1 {
-		p.log.Debugf("message %#v does not have needed timestamps", message)
 		return
 	}
 
@@ -352,7 +344,6 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 	} else {
 		message.Timestamp = tsm
 		message.State = S2
-		message.Header.Type = Initial
 	}
 }
 
@@ -376,17 +367,49 @@ func (p Peer) send(message Message, t MessageType, broadcast bool) {
 	}
 }
 
+// After the message is processed by the protocol, the value
+// will be updated on the rqueue and the deliver method
+// will be triggered to start delivering ready messages.
+func (p Peer) finishMessageProcessing(message *Message) {
+	defer func() {
+		recover()
+	}()
+
+	p.rqueue.Enqueue(message)
+	if message.State == S0 || message.State == S2 {
+		select {
+		case <-p.context.Done():
+			return
+		case <-time.After(150 * time.Millisecond):
+			p.finishMessageProcessing(message)
+			return
+		case p.updated <- *message:
+			return
+		}
+	}
+}
+
 // Start the deliver process of the ready messages.
 // This will create a snapshot of the messages present
 // on the received queue and start delivering messages
 // based on the snapshot value.
 func (p *Peer) doDeliver() {
-	var messages []Message
-	for _, m := range p.rqueue.Snapshot() {
-		messages = append(messages, m.(Message))
-	}
+	for {
+		select {
+		case <-p.context.Done():
+			return
+		case <-time.After(10 * time.Millisecond):
+			// create a subscription model into rqueue
+			// so a callback can be executed when a new
+			// message is added onto the queue.
+			var messages []Message
+			for _, m := range p.rqueue.Snapshot() {
+				messages = append(messages, m.(Message))
+			}
 
-	p.configuration.Invoker.invoke(func() {
-		p.deliver.Deliver(messages)
-	})
+			if ok, final := p.deliver.Verify(messages); ok {
+				p.deliver.Deliver(final)
+			}
+		}
+	}
 }

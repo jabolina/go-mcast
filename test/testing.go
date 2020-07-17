@@ -13,6 +13,7 @@ type UnityCluster struct {
 	T       *testing.T
 	Names   []internal.Partition
 	Unities []mcast.Unity
+	mutex   *sync.Mutex
 	group   *sync.WaitGroup
 	index   int
 }
@@ -28,7 +29,7 @@ func (c *UnityCluster) Off() {
 
 func CreateUnity(name internal.Partition, t *testing.T) mcast.Unity {
 	conf := mcast.DefaultConfiguration(name)
-	conf.Logger.ToggleDebug(true)
+	conf.Logger.ToggleDebug(false)
 	unity, err := mcast.NewMulticastConfigured(conf)
 	if err != nil {
 		t.Fatalf("failed creating unity %s. %v", name, err)
@@ -40,6 +41,7 @@ func CreateCluster(clusterSize int, prefix string, t *testing.T) *UnityCluster {
 	cluster := &UnityCluster{
 		T:     t,
 		group: &sync.WaitGroup{},
+		mutex: &sync.Mutex{},
 		Names: make([]internal.Partition, clusterSize),
 	}
 	var unities []mcast.Unity
@@ -53,8 +55,10 @@ func CreateCluster(clusterSize int, prefix string, t *testing.T) *UnityCluster {
 }
 
 func (c *UnityCluster) Next() mcast.Unity {
+	c.mutex.Lock()
 	defer func() {
 		c.index += 1
+		c.mutex.Unlock()
 	}()
 
 	if c.index >= len(c.Unities) {
