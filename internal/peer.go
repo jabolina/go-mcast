@@ -7,6 +7,21 @@ import (
 	"time"
 )
 
+// When sending a message the peer must choose
+// which kind of message will be emitted.
+type emission = uint
+
+const (
+	// When emitting a message only internally inside
+	// the partition. This is used when the message is
+	// on State S0 or S2.
+	inner emission = iota
+
+	// Used when exchanging the message Timestamp between
+	// the other partitions that participate on the protocol.
+	outer
+)
+
 // An observer that waits until the issued request
 // is committed by one of the peers.
 // When the response is committed it will be sent
@@ -107,7 +122,7 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 	}
 
 	ctx, done := context.WithCancel(context.Background())
-	deliver, err := NewDeliver(configuration.Invoker, ctx, log, configuration.Conflict, configuration.Storage)
+	deliver, err := NewDeliver(ctx, log, configuration.Conflict, configuration.Storage)
 	if err != nil {
 		done()
 		return nil, err
@@ -119,7 +134,6 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 		configuration: configuration,
 		transport:     t,
 		clock:         &ProcessClock{},
-		rqueue:        NewQueue(),
 		previousSet:   NewPreviousSet(),
 		deliver:       deliver,
 		storage:       configuration.Storage,
@@ -130,8 +144,11 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 		context:       ctx,
 		finish:        done,
 	}
+	applyDeliver := func(i interface{}) {
+		p.doDeliver(i.(Message))
+	}
+	p.rqueue = NewQueue(ctx, configuration.Invoker, configuration.Conflict, applyDeliver)
 	p.configuration.Invoker.invoke(p.poll)
-	p.configuration.Invoker.invoke(p.doDeliver)
 	return p, nil
 }
 
@@ -141,12 +158,16 @@ func (p *Peer) Command(message Message) <-chan Response {
 	apply := func() {
 		err := p.transport.Broadcast(message)
 		if err != nil {
-			res <- Response{
+			select {
+			case <-time.After(100 * time.Millisecond):
+				return
+			case res <- Response{
 				Success:    false,
 				Identifier: message.Identifier,
 				Data:       message.Content.Content,
 				Extra:      message.Content.Extensions,
 				Failure:    err,
+			}:
 			}
 		} else {
 			p.mutex.Lock()
@@ -214,7 +235,7 @@ func (p *Peer) poll() {
 				return
 			}
 			p.configuration.Invoker.invoke(func() {
-				p.send(m, Initial, true)
+				p.send(m, Initial, inner)
 			})
 		case m, ok := <-p.transport.Listen():
 			if !ok {
@@ -223,21 +244,6 @@ func (p *Peer) poll() {
 			p.configuration.Invoker.invoke(func() {
 				p.process(m)
 			})
-		case commit, ok := <-p.deliver.Listen():
-			if !ok {
-				return
-			}
-
-			p.mutex.Lock()
-			obs, ok := p.observers[commit.Identifier]
-			if ok {
-				obs.notify <- commit
-				close(obs.notify)
-				delete(p.observers, obs.uid)
-			}
-			p.mutex.Unlock()
-			// p.rqueue.Dequeue(Message{Identifier: commit.Identifier})
-			p.received.Remove(commit.Identifier)
 		}
 	}
 }
@@ -255,7 +261,7 @@ func (p *Peer) poll() {
 func (p Peer) process(message Message) {
 	header := message.Extract()
 	if header.ProtocolVersion != p.configuration.Version {
-		p.log.Warnf("peer not processing message %v on version %d", message, header.ProtocolVersion)
+		p.log.Warnf("peer not processing message %#v on version %d", message, header.ProtocolVersion)
 		return
 	}
 
@@ -308,7 +314,8 @@ func (p *Peer) processInitialMessage(message *Message) {
 		if message.State == S0 {
 			message.State = S1
 			message.Timestamp = p.clock.Tock()
-			p.send(*message, External, false)
+			p.received.Insert(message.Identifier, p.configuration.Partition, message.Timestamp)
+			p.send(*message, External, outer)
 		} else if message.State == S2 {
 			message.State = S3
 			if message.Timestamp > p.clock.Tock() {
@@ -334,7 +341,7 @@ func (p *Peer) processInitialMessage(message *Message) {
 func (p *Peer) exchangeTimestamp(message *Message) {
 	p.received.Insert(message.Identifier, message.From, message.Timestamp)
 	values := p.received.Read(message.Identifier)
-	if len(values) < len(message.Destination)-1 {
+	if len(values) < len(message.Destination) {
 		return
 	}
 
@@ -349,18 +356,23 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 
 // Used to send a request using the transport API.
 // Used for request across partitions, when exchanging the
-// message timestamp.
-func (p Peer) send(message Message, t MessageType, broadcast bool) {
+// message timestamp or when broadcasting the message internally
+// inside a partition.
+func (p Peer) send(message Message, t MessageType, emission emission) {
 	message.Header.Type = t
 	message.From = p.configuration.Partition
-	var otherPartitions []Partition
-	for _, partition := range message.Destination {
-		if partition != p.configuration.Partition || broadcast {
-			otherPartitions = append(otherPartitions, partition)
+	var destination []Partition
+	if emission == inner {
+		destination = append(destination, p.configuration.Partition)
+	} else {
+		for _, partition := range message.Destination {
+			if partition != p.configuration.Partition {
+				destination = append(destination, partition)
+			}
 		}
 	}
 
-	for _, partition := range otherPartitions {
+	for _, partition := range destination {
 		for err := p.transport.Unicast(message, partition); err != nil; {
 			p.log.Errorf("error unicast %s to partition %s. %v", message.Identifier, partition, err)
 		}
@@ -368,48 +380,73 @@ func (p Peer) send(message Message, t MessageType, broadcast bool) {
 }
 
 // After the message is processed by the protocol, the value
-// will be updated on the rqueue and the deliver method
-// will be triggered to start delivering ready messages.
-func (p Peer) finishMessageProcessing(message *Message) {
+// will be updated on the rqueue, and if the message is on the
+// state S0 or S2 it needs to be broadcast internally to the
+// partition.
+func (p *Peer) finishMessageProcessing(message *Message) {
 	defer func() {
 		recover()
 	}()
 
-	p.rqueue.Enqueue(message)
+	p.rqueue.Enqueue(*message)
+	uid := message.Identifier
+	p.configuration.Invoker.invoke(func() {
+		p.reprocessMessage(uid)
+	})
+}
+
+// Verify if the given message needs to be resend
+// to the processes inside a partition.
+func (p Peer) reprocessMessage(uid UID) {
+	value := p.rqueue.GetIfExists(string(uid))
+	if value == nil {
+		return
+	}
+	message := value.(Message)
 	if message.State == S0 || message.State == S2 {
 		select {
 		case <-p.context.Done():
 			return
-		case <-time.After(150 * time.Millisecond):
-			p.finishMessageProcessing(message)
+		case <-time.After(100 * time.Millisecond):
+			p.reprocessMessage(uid)
 			return
-		case p.updated <- *message:
+		case p.updated <- message:
 			return
 		}
+	}
+
+	if message.State == S3 {
+		p.rqueue.GenericDeliver(message)
 	}
 }
 
-// Start the deliver process of the ready messages.
-// This will create a snapshot of the messages present
-// on the received queue and start delivering messages
-// based on the snapshot value.
-func (p *Peer) doDeliver() {
-	for {
-		select {
-		case <-p.context.Done():
-			return
-		case <-time.After(10 * time.Millisecond):
-			// create a subscription model into rqueue
-			// so a callback can be executed when a new
-			// message is added onto the queue.
-			var messages []Message
-			for _, m := range p.rqueue.Snapshot() {
-				messages = append(messages, m.(Message))
+// The doDeliver method to commit the element on the head
+// of the rqueue. Since the rqueue will be already sorted,
+// both by the timestamp and by the message UID, we have
+// the guarantee that when a message on the head is on the
+// state S3 it will be the right message to be delivered.
+//
+// Since a message on state S3 already has its final timestamp,
+// and since the message is on the head of the rqueue it also
+// contains the lowest timestamp, so the message is ready to
+// be delivered, which means, it will be committed on the
+// local peer state machine.
+func (p *Peer) doDeliver(m Message) {
+	p.received.Remove(m.Identifier)
+	res := p.deliver.Commit(m)
+	p.configuration.Invoker.invoke(func() {
+		p.mutex.Lock()
+		obs, ok := p.observers[m.Identifier]
+		if ok {
+			select {
+			case <-time.After(150 * time.Millisecond):
+				break
+			case obs.notify <- res:
+				break
 			}
-
-			if ok, final := p.deliver.Verify(messages); ok {
-				p.deliver.Deliver(final)
-			}
+			close(obs.notify)
+			delete(p.observers, obs.uid)
 		}
-	}
+		p.mutex.Unlock()
+	})
 }

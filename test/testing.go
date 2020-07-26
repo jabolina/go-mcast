@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/jabolina/go-mcast/internal"
 	"github.com/jabolina/go-mcast/pkg/mcast"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -29,6 +30,7 @@ func (c *UnityCluster) Off() {
 
 func CreateUnity(name internal.Partition, t *testing.T) mcast.Unity {
 	conf := mcast.DefaultConfiguration(name)
+	conf.Replication = 1
 	conf.Logger.ToggleDebug(false)
 	unity, err := mcast.NewMulticastConfigured(conf)
 	if err != nil {
@@ -102,10 +104,17 @@ func (c UnityCluster) DoesAllClusterMatch(key []byte) {
 		return
 	}
 
+	c.T.Logf("cluster agrees on %s", string(res.Data))
 	c.DoesClusterMatchTo(key, res.Data)
 }
 
 func (c *UnityCluster) PoweroffUnity(unity mcast.Unity) {
 	defer c.group.Done()
 	unity.Shutdown()
+}
+
+func PrintStackTrace(t *testing.T) {
+	buf := make([]byte, 1<<16)
+	runtime.Stack(buf, true)
+	t.Errorf("%s", buf)
 }

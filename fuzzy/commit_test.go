@@ -2,6 +2,7 @@ package fuzzy
 
 import (
 	"github.com/jabolina/go-mcast/test"
+	"go.uber.org/goleak"
 	"log"
 	"sync"
 	"testing"
@@ -24,11 +25,12 @@ func Test_SequentialCommands(t *testing.T) {
 		}()
 		select {
 		case <-ch:
-			return
+			break
 		case <-time.After(30 * time.Second):
 			t.Error("failed shutdown cluster")
-			return
+			test.PrintStackTrace(t)
 		}
+		goleak.VerifyNone(t)
 	}()
 
 	key := []byte("alphabet")
@@ -42,18 +44,18 @@ func Test_SequentialCommands(t *testing.T) {
 				t.Errorf("failed writting request %v", res.Failure)
 				break
 			}
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(3 * time.Second):
 			t.Errorf("write %s timeout %#v", letter, req)
 			break
 		}
 	}
 
-	time.Sleep(time.Second)
+	time.Sleep(10 * time.Second)
 	cluster.DoesClusterMatchTo(key, []byte("Z"))
 }
 
 func Test_ConcurrentCommands(t *testing.T) {
-	cluster := test.CreateCluster(3, "concurrent", t)
+	cluster := test.CreateCluster(2, "concurrent", t)
 	defer func() {
 		ch := make(chan bool)
 		defer close(ch)
@@ -63,36 +65,30 @@ func Test_ConcurrentCommands(t *testing.T) {
 		}()
 		select {
 		case <-ch:
-			return
+			break
 		case <-time.After(30 * time.Second):
 			t.Error("failed shutdown cluster")
-			return
+			test.PrintStackTrace(t)
 		}
+		goleak.VerifyNone(t)
 	}()
 
 	key := []byte("alphabet")
 	group := sync.WaitGroup{}
-	write := func(val string) {
+	write := func(idx int, val string) {
 		defer group.Done()
 		u := cluster.Next()
 		log.Printf("************************** sending %s **************************", val)
 		req := test.GenerateRequest(key, []byte(val), cluster.Names)
-		obs := u.Write(req)
-		select {
-		case res := <-obs:
-			if !res.Success {
-				t.Errorf("failed writting request %v", res.Failure)
-				break
-			}
-		case <-time.After(time.Second):
-			t.Errorf("write %s timeout %#v", val, req)
-			break
+		res := <-u.Write(req)
+		if !res.Success {
+			t.Errorf("failed writting request %v", res.Failure)
 		}
 	}
 
-	for _, content := range test.Alphabet {
+	for i, content := range test.Alphabet {
 		group.Add(1)
-		go write(content)
+		go write(i, content)
 	}
 
 	group.Wait()

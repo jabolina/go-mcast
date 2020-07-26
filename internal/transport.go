@@ -165,9 +165,10 @@ func (r *ReliableTransport) consume(recv relt.Recv) {
 	}
 
 	select {
-	case r.producer <- m:
+	case <-time.After(100 * time.Millisecond):
+		r.log.Warnf("failed consuming %#v", m)
 		return
-	case <-time.After(250 * time.Millisecond):
+	case r.producer <- m:
 		return
 	}
 }
