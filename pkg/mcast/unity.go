@@ -19,7 +19,11 @@ type Unity interface {
 	// once a request is sent the method will return right
 	// away, but this does not mean that the value is already
 	// committed on the state machine.
-	Write(request internal.Request) (internal.UID, error)
+	// To listen when the request is applied and if it was
+	// applied successfully a channel will be returned where
+	// a response will be sent back once the request is applied
+	// in one of the participants.
+	Write(request internal.Request) <-chan internal.Response
 
 	// Query a value from the unity.
 	Read(request internal.Request) (internal.Response, error)
@@ -35,10 +39,14 @@ type peerUnity struct {
 	// Hold all peers.
 	peers []internal.PartitionPeer
 
+	// Hold the configuration for the whole unity.
 	configuration *internal.Configuration
 
+	// Used to iterate amongst all peers in a
+	// round robin way.
 	last int
 
+	// Used to spawn and control go routines.
 	invoker *internal.Invoker
 }
 
@@ -71,7 +79,7 @@ func NewUnity(configuration *internal.Configuration) (Unity, error) {
 }
 
 // Implements the Unity interface.
-func (p *peerUnity) Write(request internal.Request) (internal.UID, error) {
+func (p *peerUnity) Write(request internal.Request) <-chan internal.Response {
 	id := internal.UID(internal.GenerateUID())
 	message := internal.Message{
 		Header: internal.ProtocolHeader{
@@ -92,7 +100,7 @@ func (p *peerUnity) Write(request internal.Request) (internal.UID, error) {
 	}
 	peer := p.resolveNextPeer()
 	p.configuration.Logger.Infof("sending request %#v", request)
-	return id, peer.Transport().Broadcast(message)
+	return peer.Command(message)
 }
 
 // Implements the Unity interface.
