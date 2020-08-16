@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/ReneKroon/ttlcache"
 	"github.com/wangjia184/sortedset"
-	"log"
 	"sync"
 	"time"
 )
@@ -35,6 +34,10 @@ type Queue interface {
 	// A message will only be able to be delivered if is on state
 	// S3 and do not conflict with any other messages.
 	GenericDeliver(interface{})
+
+	// Verify if the given interface is eligible to be added
+	// to the queue.
+	IsEligible(interface{}) bool
 }
 
 // Implements the queue interface. This will be used by a single
@@ -115,6 +118,16 @@ func (r RQueue) validateMessageChange(after, before Message) bool {
 	return false
 }
 
+// This method will verify if the given message was
+// previously applied to the state machine.
+// The values are held by a cache where each key can
+// live up to 10 minutes.
+func (r *RQueue) IsEligible(i interface{}) bool {
+	m := i.(Message)
+	_, ok := r.applied.Get(string(m.Identifier))
+	return !ok
+}
+
 // This method will verify if the element at the head
 // of the set is ready to be delivered. Since the set
 // already sorts the messages at the right order, we
@@ -144,6 +157,12 @@ func (r *RQueue) verifyAndDeliver() {
 		return
 	}
 
+	if !r.IsEligible(curr) {
+		r.lastHead = curr
+		r.Dequeue(curr)
+		return
+	}
+
 	// I already knew an element and the head looks like to have an
 	// element, must verify if they are different.
 	if r.validateMessageChange(r.lastHead.(Message), curr.(Message)) {
@@ -155,7 +174,7 @@ func (r *RQueue) verifyAndDeliver() {
 
 // This method will be polling while the application is
 // alive. The element in the head of the queue will be
-// verified every 10 milliseconds and if the element
+// verified every 5 milliseconds and if the element
 // changed the delivery method will be called.
 func (r *RQueue) poll() {
 	defer r.applied.Close()
@@ -174,7 +193,6 @@ func (r *RQueue) poll() {
 // cannot be inserted again.
 func (r *RQueue) verifyAndInsert(message Message) {
 	if _, old := r.applied.Get(string(message.Identifier)); old {
-		log.Println("discarding...")
 		return
 	}
 	r.mutex.Lock()
@@ -229,9 +247,10 @@ func (r *RQueue) Dequeue(i interface{}) interface{} {
 	defer r.mutex.Unlock()
 
 	m := i.(Message)
-	value := r.set.Remove(string(m.Identifier))
+	value := r.set.GetByKey(string(m.Identifier))
 	if value != nil {
 		r.applied.Set(string(m.Identifier), true)
+		r.set.Remove(string(m.Identifier))
 		return value.Value
 	}
 	return nil
@@ -257,12 +276,15 @@ func (r *RQueue) GenericDeliver(i interface{}) {
 	max := r.set.PeekMax()
 
 	var messages []Message
-	for _, node := range r.set.GetByScoreRange(min.Score(), max.Score(), nil) {
-		value := node.Value.(Message)
-		if value.Identifier != message.Identifier {
-			messages = append(messages, value)
+	if min != nil && max != nil {
+		for _, node := range r.set.GetByScoreRange(min.Score(), max.Score(), nil) {
+			value := node.Value.(Message)
+			if value.Identifier != message.Identifier {
+				messages = append(messages, value)
+			}
 		}
 	}
+
 	// If the message do not conflict with any other message
 	// then it can be delivered directly.
 	if !r.conflict.Conflict(message, messages) {

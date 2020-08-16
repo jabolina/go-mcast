@@ -133,7 +133,9 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 		observers:     make(map[UID]observer),
 		configuration: configuration,
 		transport:     t,
-		clock:         &ProcessClock{},
+		clock:         &ProcessClock{
+			mutex: &sync.Mutex{},
+		},
 		previousSet:   NewPreviousSet(),
 		deliver:       deliver,
 		storage:       configuration.Storage,
@@ -154,30 +156,32 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 
 // Implements the PartitionPeer interface.
 func (p *Peer) Command(message Message) <-chan Response {
-	res := make(chan Response, 1)
+	res := make(chan Response)
 	apply := func() {
 		err := p.transport.Broadcast(message)
 		if err != nil {
-			select {
-			case <-time.After(100 * time.Millisecond):
-				return
-			case res <- Response{
+			finalResponse := Response{
 				Success:    false,
 				Identifier: message.Identifier,
 				Data:       message.Content.Content,
 				Extra:      message.Content.Extensions,
 				Failure:    err,
-			}:
 			}
-		} else {
-			p.mutex.Lock()
-			defer p.mutex.Unlock()
-			obs := observer{
-				uid:    message.Identifier,
-				notify: res,
+
+			select {
+			case res <- finalResponse:
+			case <-time.After(100 * time.Millisecond):
 			}
-			p.observers[message.Identifier] = obs
+			return
 		}
+
+		p.mutex.Lock()
+		defer p.mutex.Unlock()
+		obs := observer{
+			uid:    message.Identifier,
+			notify: res,
+		}
+		p.observers[message.Identifier] = obs
 	}
 	p.configuration.Invoker.invoke(apply)
 	return res
@@ -265,8 +269,14 @@ func (p Peer) process(message Message) {
 		return
 	}
 
+	if !p.rqueue.IsEligible(message) {
+		return
+	}
+	enqueue := true
 	defer func() {
-		p.finishMessageProcessing(&message)
+		if enqueue {
+			p.finishMessageProcessing(&message)
+		}
 	}()
 
 	switch header.Type {
@@ -275,9 +285,10 @@ func (p Peer) process(message Message) {
 		p.processInitialMessage(&message)
 	case External:
 		p.log.Debugf("processing external request %#v", message)
-		p.exchangeTimestamp(&message)
+		enqueue = p.exchangeTimestamp(&message)
 	default:
 		p.log.Warnf("unknown message type %d", header.Type)
+		enqueue = false
 	}
 }
 
@@ -338,11 +349,11 @@ func (p *Peer) processInitialMessage(message *Message) {
 // is greater or equal to tsm, in positive case, a second consensus instance can be
 // avoided and, the state of m can jump directly to state S3 since the group local
 // clock is already bigger than tsm.
-func (p *Peer) exchangeTimestamp(message *Message) {
+func (p *Peer) exchangeTimestamp(message *Message) bool {
 	p.received.Insert(message.Identifier, message.From, message.Timestamp)
 	values := p.received.Read(message.Identifier)
 	if len(values) < len(message.Destination) {
-		return
+		return false
 	}
 
 	tsm := MaxValue(values)
@@ -352,6 +363,7 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 		message.Timestamp = tsm
 		message.State = S2
 	}
+	return true
 }
 
 // Used to send a request using the transport API.
@@ -436,6 +448,7 @@ func (p *Peer) doDeliver(m Message) {
 	res := p.deliver.Commit(m)
 	p.configuration.Invoker.invoke(func() {
 		p.mutex.Lock()
+		defer p.mutex.Unlock()
 		obs, ok := p.observers[m.Identifier]
 		if ok {
 			select {
@@ -447,6 +460,5 @@ func (p *Peer) doDeliver(m Message) {
 			close(obs.notify)
 			delete(p.observers, obs.uid)
 		}
-		p.mutex.Unlock()
 	})
 }

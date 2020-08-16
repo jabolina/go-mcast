@@ -55,7 +55,7 @@ func Test_SequentialCommands(t *testing.T) {
 }
 
 func Test_ConcurrentCommands(t *testing.T) {
-	cluster := test.CreateCluster(2, "concurrent", t)
+	cluster := test.CreateCluster(3, "concurrent", t)
 	defer func() {
 		ch := make(chan bool)
 		defer close(ch)

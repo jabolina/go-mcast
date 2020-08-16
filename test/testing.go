@@ -30,7 +30,6 @@ func (c *UnityCluster) Off() {
 
 func CreateUnity(name internal.Partition, t *testing.T) mcast.Unity {
 	conf := mcast.DefaultConfiguration(name)
-	conf.Replication = 1
 	conf.Logger.ToggleDebug(false)
 	unity, err := mcast.NewMulticastConfigured(conf)
 	if err != nil {
@@ -85,7 +84,7 @@ func (c UnityCluster) DoesClusterMatchTo(key []byte, expected []byte) {
 		}
 
 		if !bytes.Equal(expected, res.Data) {
-			c.T.Errorf("peer %d differ. %s but expected %s", i, string(res.Data), string(expected))
+			c.T.Errorf("peer %d differ. %s|%s but expected %s", i, string(res.Data), res.Identifier, string(expected))
 		}
 	}
 }
@@ -104,7 +103,7 @@ func (c UnityCluster) DoesAllClusterMatch(key []byte) {
 		return
 	}
 
-	c.T.Logf("cluster agrees on %s", string(res.Data))
+	c.T.Logf("cluster agrees on %s with %s", string(res.Data), res.Identifier)
 	c.DoesClusterMatchTo(key, res.Data)
 }
 

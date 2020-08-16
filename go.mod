@@ -22,3 +22,7 @@ require (
 	golang.org/x/tools v0.0.0-20200717024301-6ddee64345a6 // indirect
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6 // indirect
 )
+
+replace (
+	github.com/jabolina/relt v0.0.8 => /home/jab/git/relt
+)

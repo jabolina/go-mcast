@@ -12,7 +12,8 @@ else
     FMT=--enable gofmt
 endif
 
-test_rule: # @HELP execute tests
+.PHONY: test
+test: # @HELP execute tests
 	@echo "executing tests"
 	GOTRACEBACK=all go test $(TESTARGS) -count=1 -timeout=40s -race ./test/...
 	GOTRACEBACK=all go test $(TESTARGS) -count=1 -timeout=40s -tags batchtest -race ./test/...
@@ -33,12 +34,10 @@ build: # @HELP build the packages
 	sh $(PWD)/scripts/build.sh
 
 fuzz:
-	GOTRACEBACK=all go test $(TESTARGS) -count=1 -timeout=5m ./fuzzy
-	GOTRACEBACK=all go test $(TESTARGS) -count=1 -timeout=5m -tags batchtest ./fuzzy
+	GOTRACEBACK=all go test $(TESTARGS) -count=3 -timeout=5m ./fuzzy
+	GOTRACEBACK=all go test $(TESTARGS) -count=3 -timeout=5m -tags batchtest ./fuzzy
 
 ci: # @HELP executes on CI
-ci: deps test_rule fuzz dep-linter lint
+ci: deps test fuzz dep-linter lint
 
-all: deps test_rule fuzz lint
-
-.PHONY: all build
+all: deps test fuzz lint
