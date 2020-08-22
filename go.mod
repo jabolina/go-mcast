@@ -9,7 +9,7 @@ require (
 	github.com/axw/gocov v1.0.0 // indirect
 	github.com/fatih/color v1.9.0 // indirect
 	github.com/hashicorp/go-version v1.2.0 // indirect
-	github.com/jabolina/relt v0.0.8
+	github.com/jabolina/relt v0.0.9
 	github.com/matm/gocov-html v0.0.0-20200509184451-71874e2e203b // indirect
 	github.com/mattn/go-colorable v0.1.6 // indirect
 	github.com/mitchellh/gox v1.0.1 // indirect
@@ -21,8 +21,4 @@ require (
 	golang.org/x/sys v0.0.0-20200523222454-059865788121 // indirect
 	golang.org/x/tools v0.0.0-20200717024301-6ddee64345a6 // indirect
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6 // indirect
-)
-
-replace (
-	github.com/jabolina/relt v0.0.8 => /home/jab/git/relt
 )
