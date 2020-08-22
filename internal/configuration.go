@@ -1,7 +1,5 @@
 package internal
 
-import "sync"
-
 // Holds the peer configuration.
 type PeerConfiguration struct {
 	// The peer name.
@@ -12,9 +10,6 @@ type PeerConfiguration struct {
 
 	// Version at which the peer is working.
 	Version uint
-
-	// Peer must also holds the global Invoker.
-	Invoker *Invoker
 
 	// Conflict relationship, will be used to order the
 	// delivery sequence.
@@ -49,19 +44,4 @@ type Configuration struct {
 
 	// Logger to be used by the protocol.
 	Logger Logger
-}
-
-// Invoker is responsible for handling
-// goroutines.
-type Invoker struct {
-	Group *sync.WaitGroup
-}
-
-// Spawn a new goroutine and manage through the SyncGroup.
-func (i *Invoker) invoke(f func()) {
-	i.Group.Add(1)
-	go func() {
-		defer i.Group.Done()
-		f()
-	}()
 }

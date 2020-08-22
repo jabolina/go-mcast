@@ -63,6 +63,9 @@ type Peer struct {
 	// Mutex for synchronizing operations.
 	mutex *sync.Mutex
 
+	// Used to spawn and control all go routines.
+	invoker Invoker
+
 	// Holds the observers that are waiting for a response
 	// from the issued request.
 	observers map[UID]observer
@@ -131,26 +134,27 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 	p := &Peer{
 		mutex:         &sync.Mutex{},
 		observers:     make(map[UID]observer),
+		invoker:       InvokerInstance(),
 		configuration: configuration,
 		transport:     t,
-		clock:         &ProcessClock{
+		clock: &ProcessClock{
 			mutex: &sync.Mutex{},
 		},
-		previousSet:   NewPreviousSet(),
-		deliver:       deliver,
-		storage:       configuration.Storage,
-		conflict:      configuration.Conflict,
-		log:           log,
-		received:      NewMemo(),
-		updated:       make(chan Message),
-		context:       ctx,
-		finish:        done,
+		previousSet: NewPreviousSet(),
+		deliver:     deliver,
+		storage:     configuration.Storage,
+		conflict:    configuration.Conflict,
+		log:         log,
+		received:    NewMemo(),
+		updated:     make(chan Message),
+		context:     ctx,
+		finish:      done,
 	}
 	applyDeliver := func(i interface{}) {
 		p.doDeliver(i.(Message))
 	}
-	p.rqueue = NewQueue(ctx, configuration.Invoker, configuration.Conflict, applyDeliver)
-	p.configuration.Invoker.invoke(p.poll)
+	p.rqueue = NewQueue(ctx, configuration.Conflict, applyDeliver)
+	p.invoker.Spawn(p.poll)
 	return p, nil
 }
 
@@ -183,7 +187,7 @@ func (p *Peer) Command(message Message) <-chan Response {
 		}
 		p.observers[message.Identifier] = obs
 	}
-	p.configuration.Invoker.invoke(apply)
+	p.invoker.Spawn(apply)
 	return res
 }
 
@@ -238,14 +242,14 @@ func (p *Peer) poll() {
 			if !ok {
 				return
 			}
-			p.configuration.Invoker.invoke(func() {
+			p.invoker.Spawn(func() {
 				p.send(m, Initial, inner)
 			})
 		case m, ok := <-p.transport.Listen():
 			if !ok {
 				return
 			}
-			p.configuration.Invoker.invoke(func() {
+			p.invoker.Spawn(func() {
 				p.process(m)
 			})
 		}
@@ -400,15 +404,19 @@ func (p *Peer) finishMessageProcessing(message *Message) {
 		recover()
 	}()
 
-	p.rqueue.Enqueue(*message)
-	uid := message.Identifier
-	p.configuration.Invoker.invoke(func() {
-		p.reprocessMessage(uid)
-	})
+	if p.rqueue.Enqueue(*message) {
+		uid := message.Identifier
+		p.invoker.Spawn(func() {
+			p.reprocessMessage(uid)
+		})
+	}
 }
 
 // Verify if the given message needs to be resend
 // to the processes inside a partition.
+// This methods receives the UID instead of the message
+// object, so this ensures that the r_queue and the
+// protocols see the same object state.
 func (p Peer) reprocessMessage(uid UID) {
 	value := p.rqueue.GetIfExists(string(uid))
 	if value == nil {
@@ -446,7 +454,7 @@ func (p Peer) reprocessMessage(uid UID) {
 func (p *Peer) doDeliver(m Message) {
 	p.received.Remove(m.Identifier)
 	res := p.deliver.Commit(m)
-	p.configuration.Invoker.invoke(func() {
+	p.invoker.Spawn(func() {
 		p.mutex.Lock()
 		defer p.mutex.Unlock()
 		obs, ok := p.observers[m.Identifier]

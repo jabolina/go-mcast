@@ -10,6 +10,27 @@ import (
 	"testing"
 )
 
+type TestInvoker struct {
+	group *sync.WaitGroup
+}
+
+func (t *TestInvoker) Spawn(f func()) {
+	t.group.Add(1)
+	go func() {
+		defer t.group.Done()
+		f()
+	}()
+}
+
+func (t *TestInvoker) Stop() {
+	t.group.Wait()
+}
+func NewInvoker() internal.Invoker {
+	return &TestInvoker{
+		group: &sync.WaitGroup{},
+	}
+}
+
 type UnityCluster struct {
 	T       *testing.T
 	Names   []internal.Partition
@@ -28,10 +49,37 @@ func (c *UnityCluster) Off() {
 	c.group.Wait()
 }
 
+func NewTestingUnity(configuration *internal.Configuration) (mcast.Unity, error) {
+	invk := NewInvoker()
+	var peers []internal.PartitionPeer
+	for i := 0; i < configuration.Replication; i++ {
+		pc := &internal.PeerConfiguration{
+			Name:      fmt.Sprintf("%s-%d", configuration.Name, i),
+			Partition: configuration.Name,
+			Version:   configuration.Version,
+			Conflict:  configuration.Conflict,
+			Storage:   configuration.Storage,
+		}
+		peer, err := internal.NewPeer(pc, configuration.Logger)
+		if err != nil {
+			return nil, err
+		}
+
+		peers = append(peers, peer)
+	}
+	pu := &mcast.PeerUnity{
+		Configuration: configuration,
+		Peers:         peers,
+		Last:          0,
+		Invoker:       invk,
+	}
+	return pu, nil
+}
+
 func CreateUnity(name internal.Partition, t *testing.T) mcast.Unity {
 	conf := mcast.DefaultConfiguration(name)
 	conf.Logger.ToggleDebug(false)
-	unity, err := mcast.NewMulticastConfigured(conf)
+	unity, err := NewTestingUnity(conf)
 	if err != nil {
 		t.Fatalf("failed creating unity %s. %v", name, err)
 	}

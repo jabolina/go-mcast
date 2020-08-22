@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"github.com/ReneKroon/ttlcache"
 	"github.com/wangjia184/sortedset"
 	"sync"
 	"time"
@@ -10,8 +9,9 @@ import (
 
 // A Queue interface.
 type Queue interface {
-	// Add a new item.
-	Enqueue(interface{})
+	// Add a new item and returns true if a change
+	// occurred and false otherwise.
+	Enqueue(interface{}) bool
 
 	// Pick the first item from the queue.
 	Pick() interface{}
@@ -68,7 +68,7 @@ type RQueue struct {
 
 	// Keep track of messages that where already applied
 	// onto the state machine.
-	applied *ttlcache.Cache
+	applied Cache
 
 	// Actual message values. The values will be kept
 	// inside a sorted set, so we can have the guarantee
@@ -91,9 +91,8 @@ type RQueue struct {
 }
 
 // Create a new queue data structure.
-func NewQueue(ctx context.Context, invoker *Invoker, conflict ConflictRelationship, f func(interface{})) Queue {
-	c := ttlcache.NewCache()
-	c.SetTTL(10 * time.Minute)
+func NewQueue(ctx context.Context, conflict ConflictRelationship, f func(interface{})) Queue {
+	c := NewTtlCache(ctx)
 	r := &RQueue{
 		ctx:      ctx,
 		mutex:    &sync.Mutex{},
@@ -102,7 +101,7 @@ func NewQueue(ctx context.Context, invoker *Invoker, conflict ConflictRelationsh
 		set:      sortedset.New(),
 		deliver:  f,
 	}
-	invoker.invoke(r.poll)
+	InvokerInstance().Spawn(r.poll)
 	return r
 }
 
@@ -123,9 +122,10 @@ func (r RQueue) validateMessageChange(after, before Message) bool {
 // The values are held by a cache where each key can
 // live up to 10 minutes.
 func (r *RQueue) IsEligible(i interface{}) bool {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	m := i.(Message)
-	_, ok := r.applied.Get(string(m.Identifier))
-	return !ok
+	return !r.applied.Contains(string(m.Identifier))
 }
 
 // This method will verify if the element at the head
@@ -157,12 +157,6 @@ func (r *RQueue) verifyAndDeliver() {
 		return
 	}
 
-	if !r.IsEligible(curr) {
-		r.lastHead = curr
-		r.Dequeue(curr)
-		return
-	}
-
 	// I already knew an element and the head looks like to have an
 	// element, must verify if they are different.
 	if r.validateMessageChange(r.lastHead.(Message), curr.(Message)) {
@@ -177,7 +171,6 @@ func (r *RQueue) verifyAndDeliver() {
 // verified every 5 milliseconds and if the element
 // changed the delivery method will be called.
 func (r *RQueue) poll() {
-	defer r.applied.Close()
 	for {
 		select {
 		case <-r.ctx.Done():
@@ -191,33 +184,35 @@ func (r *RQueue) poll() {
 // Will verify if the message can be added into the set.
 // The cache will hold messages that already removed and
 // cannot be inserted again.
-func (r *RQueue) verifyAndInsert(message Message) {
-	if _, old := r.applied.Get(string(message.Identifier)); old {
-		return
-	}
+func (r *RQueue) verifyAndInsert(message Message) bool {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	r.set.AddOrUpdate(string(message.Identifier), sortedset.SCORE(message.Timestamp), message)
+	return true
 }
 
 // Implements the Queue interface.
 // This method will add the given element into the set,
 // if the value already exists it will be updated and if
 // there is need the values will be sorted again.
-func (r *RQueue) Enqueue(i interface{}) {
+func (r *RQueue) Enqueue(i interface{}) bool {
 	m := i.(Message)
+	if !r.IsEligible(m) {
+		return false
+	}
 	exists := r.GetIfExists(string(m.Identifier))
 	if exists != nil {
 		v := exists.(Message)
 		// I can only change the message state if the new message contains
 		// a timestamp at lest equals to the already present on memory and
 		// a state that is currently higher or equal than the previous one.
+		// Thus ensuring that the message do not "go back in time".
 		if v.Timestamp <= m.Timestamp && v.State <= m.State {
-			r.verifyAndInsert(m)
+			return r.verifyAndInsert(m)
 		}
-	} else {
-		r.verifyAndInsert(m)
+		return false
 	}
+	return r.verifyAndInsert(m)
 }
 
 // Implements the Queue interface.
@@ -249,7 +244,7 @@ func (r *RQueue) Dequeue(i interface{}) interface{} {
 	m := i.(Message)
 	value := r.set.GetByKey(string(m.Identifier))
 	if value != nil {
-		r.applied.Set(string(m.Identifier), true)
+		r.applied.Set(string(m.Identifier))
 		r.set.Remove(string(m.Identifier))
 		return value.Value
 	}
@@ -269,9 +264,14 @@ func (r *RQueue) GetIfExists(id string) interface{} {
 
 // Implements the Queue interface.
 func (r *RQueue) GenericDeliver(i interface{}) {
+	if !r.IsEligible(i) {
+		return
+	}
+
 	message := i.(Message)
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
+
 	min := r.set.PeekMin()
 	max := r.set.PeekMax()
 

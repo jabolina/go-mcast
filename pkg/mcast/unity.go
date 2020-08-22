@@ -3,7 +3,6 @@ package mcast
 import (
 	"fmt"
 	"github.com/jabolina/go-mcast/internal"
-	"sync"
 )
 
 // The unity interface, responsible for interacting
@@ -35,30 +34,29 @@ type Unity interface {
 }
 
 // Concrete implementation of the Unity interface.
-type peerUnity struct {
+type PeerUnity struct {
 	// Hold all peers.
-	peers []internal.PartitionPeer
+	Peers []internal.PartitionPeer
 
 	// Hold the configuration for the whole unity.
-	configuration *internal.Configuration
+	Configuration *internal.Configuration
 
 	// Used to iterate amongst all peers in a
 	// round robin way.
-	last int
+	Last int
 
 	// Used to spawn and control go routines.
-	invoker *internal.Invoker
+	Invoker internal.Invoker
 }
 
 func NewUnity(configuration *internal.Configuration) (Unity, error) {
-	invk := &internal.Invoker{Group: &sync.WaitGroup{}}
+	invk := internal.InvokerInstance()
 	var peers []internal.PartitionPeer
 	for i := 0; i < configuration.Replication; i++ {
 		pc := &internal.PeerConfiguration{
 			Name:      fmt.Sprintf("%s-%d", configuration.Name, i),
 			Partition: configuration.Name,
 			Version:   configuration.Version,
-			Invoker:   invk,
 			Conflict:  configuration.Conflict,
 			Storage:   configuration.Storage,
 		}
@@ -69,21 +67,21 @@ func NewUnity(configuration *internal.Configuration) (Unity, error) {
 
 		peers = append(peers, peer)
 	}
-	pu := &peerUnity{
-		configuration: configuration,
-		peers:         peers,
-		last:          0,
-		invoker:       invk,
+	pu := &PeerUnity{
+		Configuration: configuration,
+		Peers:         peers,
+		Last:          0,
+		Invoker:       invk,
 	}
 	return pu, nil
 }
 
 // Implements the Unity interface.
-func (p *peerUnity) Write(request internal.Request) <-chan internal.Response {
+func (p *PeerUnity) Write(request internal.Request) <-chan internal.Response {
 	id := internal.UID(internal.GenerateUID())
 	message := internal.Message{
 		Header: internal.ProtocolHeader{
-			ProtocolVersion: p.configuration.Version,
+			ProtocolVersion: p.Configuration.Version,
 			Type:            internal.Initial,
 		},
 		Identifier: id,
@@ -96,32 +94,32 @@ func (p *peerUnity) Write(request internal.Request) <-chan internal.Response {
 		State:       internal.S0,
 		Timestamp:   0,
 		Destination: request.Destination,
-		From:        p.configuration.Name,
+		From:        p.Configuration.Name,
 	}
 	peer := p.resolveNextPeer()
-	p.configuration.Logger.Infof("sending request %#v", request)
+	p.Configuration.Logger.Infof("sending request %#v", request)
 	return peer.Command(message)
 }
 
 // Implements the Unity interface.
-func (p *peerUnity) Read(request internal.Request) (internal.Response, error) {
+func (p *PeerUnity) Read(request internal.Request) (internal.Response, error) {
 	peer := p.resolveNextPeer()
 	return peer.FastRead(request)
 }
 
 // Implements the Unity interface.
-func (p *peerUnity) Shutdown() {
-	for _, peer := range p.peers {
+func (p *PeerUnity) Shutdown() {
+	for _, peer := range p.Peers {
 		peer.Stop()
 	}
-	p.invoker.Group.Wait()
+	p.Invoker.Stop()
 }
 
 // Returns the next peer to be used. This will
 // work as a round robin chain.
-func (p peerUnity) resolveNextPeer() internal.PartitionPeer {
+func (p PeerUnity) resolveNextPeer() internal.PartitionPeer {
 	defer func() {
-		p.last += 1
+		p.Last += 1
 	}()
-	return p.peers[p.last%len(p.peers)]
+	return p.Peers[p.Last%len(p.Peers)]
 }
