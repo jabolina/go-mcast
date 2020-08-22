@@ -51,6 +51,9 @@ func (m *Memo) Insert(key UID, from Partition, value uint64) {
 		for _, e := range m.values[key] {
 			if e.from == from {
 				skip = true
+				if e.timestamp < value {
+					e.timestamp = value
+				}
 				break
 			}
 		}

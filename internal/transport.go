@@ -64,7 +64,7 @@ func NewTransport(peer *PeerConfiguration, log Logger) (Transport, error) {
 		context:  ctx,
 		finish:   done,
 	}
-	peer.Invoker.invoke(t.poll)
+	InvokerInstance().Spawn(t.poll)
 	return t, nil
 }
 

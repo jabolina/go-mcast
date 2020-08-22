@@ -63,6 +63,9 @@ type Peer struct {
 	// Mutex for synchronizing operations.
 	mutex *sync.Mutex
 
+	// Used to spawn and control all go routines.
+	invoker Invoker
+
 	// Holds the observers that are waiting for a response
 	// from the issued request.
 	observers map[UID]observer
@@ -131,55 +134,60 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 	p := &Peer{
 		mutex:         &sync.Mutex{},
 		observers:     make(map[UID]observer),
+		invoker:       InvokerInstance(),
 		configuration: configuration,
 		transport:     t,
-		clock:         &ProcessClock{},
-		previousSet:   NewPreviousSet(),
-		deliver:       deliver,
-		storage:       configuration.Storage,
-		conflict:      configuration.Conflict,
-		log:           log,
-		received:      NewMemo(),
-		updated:       make(chan Message),
-		context:       ctx,
-		finish:        done,
+		clock: &ProcessClock{
+			mutex: &sync.Mutex{},
+		},
+		previousSet: NewPreviousSet(),
+		deliver:     deliver,
+		storage:     configuration.Storage,
+		conflict:    configuration.Conflict,
+		log:         log,
+		received:    NewMemo(),
+		updated:     make(chan Message),
+		context:     ctx,
+		finish:      done,
 	}
 	applyDeliver := func(i interface{}) {
 		p.doDeliver(i.(Message))
 	}
-	p.rqueue = NewQueue(ctx, configuration.Invoker, configuration.Conflict, applyDeliver)
-	p.configuration.Invoker.invoke(p.poll)
+	p.rqueue = NewQueue(ctx, configuration.Conflict, applyDeliver)
+	p.invoker.Spawn(p.poll)
 	return p, nil
 }
 
 // Implements the PartitionPeer interface.
 func (p *Peer) Command(message Message) <-chan Response {
-	res := make(chan Response, 1)
+	res := make(chan Response)
 	apply := func() {
 		err := p.transport.Broadcast(message)
 		if err != nil {
-			select {
-			case <-time.After(100 * time.Millisecond):
-				return
-			case res <- Response{
+			finalResponse := Response{
 				Success:    false,
 				Identifier: message.Identifier,
 				Data:       message.Content.Content,
 				Extra:      message.Content.Extensions,
 				Failure:    err,
-			}:
 			}
-		} else {
-			p.mutex.Lock()
-			defer p.mutex.Unlock()
-			obs := observer{
-				uid:    message.Identifier,
-				notify: res,
+
+			select {
+			case res <- finalResponse:
+			case <-time.After(100 * time.Millisecond):
 			}
-			p.observers[message.Identifier] = obs
+			return
 		}
+
+		p.mutex.Lock()
+		defer p.mutex.Unlock()
+		obs := observer{
+			uid:    message.Identifier,
+			notify: res,
+		}
+		p.observers[message.Identifier] = obs
 	}
-	p.configuration.Invoker.invoke(apply)
+	p.invoker.Spawn(apply)
 	return res
 }
 
@@ -234,14 +242,14 @@ func (p *Peer) poll() {
 			if !ok {
 				return
 			}
-			p.configuration.Invoker.invoke(func() {
+			p.invoker.Spawn(func() {
 				p.send(m, Initial, inner)
 			})
 		case m, ok := <-p.transport.Listen():
 			if !ok {
 				return
 			}
-			p.configuration.Invoker.invoke(func() {
+			p.invoker.Spawn(func() {
 				p.process(m)
 			})
 		}
@@ -265,8 +273,14 @@ func (p Peer) process(message Message) {
 		return
 	}
 
+	if !p.rqueue.IsEligible(message) {
+		return
+	}
+	enqueue := true
 	defer func() {
-		p.finishMessageProcessing(&message)
+		if enqueue {
+			p.finishMessageProcessing(&message)
+		}
 	}()
 
 	switch header.Type {
@@ -275,9 +289,10 @@ func (p Peer) process(message Message) {
 		p.processInitialMessage(&message)
 	case External:
 		p.log.Debugf("processing external request %#v", message)
-		p.exchangeTimestamp(&message)
+		enqueue = p.exchangeTimestamp(&message)
 	default:
 		p.log.Warnf("unknown message type %d", header.Type)
+		enqueue = false
 	}
 }
 
@@ -338,11 +353,11 @@ func (p *Peer) processInitialMessage(message *Message) {
 // is greater or equal to tsm, in positive case, a second consensus instance can be
 // avoided and, the state of m can jump directly to state S3 since the group local
 // clock is already bigger than tsm.
-func (p *Peer) exchangeTimestamp(message *Message) {
+func (p *Peer) exchangeTimestamp(message *Message) bool {
 	p.received.Insert(message.Identifier, message.From, message.Timestamp)
 	values := p.received.Read(message.Identifier)
 	if len(values) < len(message.Destination) {
-		return
+		return false
 	}
 
 	tsm := MaxValue(values)
@@ -352,6 +367,7 @@ func (p *Peer) exchangeTimestamp(message *Message) {
 		message.Timestamp = tsm
 		message.State = S2
 	}
+	return true
 }
 
 // Used to send a request using the transport API.
@@ -388,15 +404,19 @@ func (p *Peer) finishMessageProcessing(message *Message) {
 		recover()
 	}()
 
-	p.rqueue.Enqueue(*message)
-	uid := message.Identifier
-	p.configuration.Invoker.invoke(func() {
-		p.reprocessMessage(uid)
-	})
+	if p.rqueue.Enqueue(*message) {
+		uid := message.Identifier
+		p.invoker.Spawn(func() {
+			p.reprocessMessage(uid)
+		})
+	}
 }
 
 // Verify if the given message needs to be resend
 // to the processes inside a partition.
+// This methods receives the UID instead of the message
+// object, so this ensures that the r_queue and the
+// protocols see the same object state.
 func (p Peer) reprocessMessage(uid UID) {
 	value := p.rqueue.GetIfExists(string(uid))
 	if value == nil {
@@ -434,8 +454,9 @@ func (p Peer) reprocessMessage(uid UID) {
 func (p *Peer) doDeliver(m Message) {
 	p.received.Remove(m.Identifier)
 	res := p.deliver.Commit(m)
-	p.configuration.Invoker.invoke(func() {
+	p.invoker.Spawn(func() {
 		p.mutex.Lock()
+		defer p.mutex.Unlock()
 		obs, ok := p.observers[m.Identifier]
 		if ok {
 			select {
@@ -447,6 +468,5 @@ func (p *Peer) doDeliver(m Message) {
 			close(obs.notify)
 			delete(p.observers, obs.uid)
 		}
-		p.mutex.Unlock()
 	})
 }
