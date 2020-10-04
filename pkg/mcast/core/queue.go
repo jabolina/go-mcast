@@ -1,7 +1,8 @@
-package internal
+package core
 
 import (
 	"context"
+	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"github.com/wangjia184/sortedset"
 	"sync"
 	"time"
@@ -77,7 +78,7 @@ type RQueue struct {
 
 	// Hold the conflict relationship to be used
 	// when delivering messages.
-	conflict ConflictRelationship
+	conflict types.ConflictRelationship
 
 	// Deliver function to be executed when the head element
 	// changes.
@@ -91,7 +92,7 @@ type RQueue struct {
 }
 
 // Create a new queue data structure.
-func NewQueue(ctx context.Context, conflict ConflictRelationship, f func(interface{})) Queue {
+func NewQueue(ctx context.Context, conflict types.ConflictRelationship, f func(interface{})) Queue {
 	c := NewTtlCache(ctx)
 	r := &RQueue{
 		ctx:      ctx,
@@ -110,9 +111,9 @@ func NewQueue(ctx context.Context, conflict ConflictRelationship, f func(interfa
 // where is also verified if the current message in the
 // queue head is on State S3, if so, the message is ready
 // to be delivered.
-func (r RQueue) validateMessageChange(after, before Message) bool {
+func (r RQueue) validateMessageChange(after, before types.Message) bool {
 	if after.Identifier != before.Identifier || after.State != before.State || after.Timestamp < before.Timestamp {
-		return before.State == S3
+		return before.State == types.S3
 	}
 	return false
 }
@@ -124,7 +125,7 @@ func (r RQueue) validateMessageChange(after, before Message) bool {
 func (r *RQueue) IsEligible(i interface{}) bool {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	m := i.(Message)
+	m := i.(types.Message)
 	return !r.applied.Contains(string(m.Identifier))
 }
 
@@ -149,8 +150,8 @@ func (r *RQueue) verifyAndDeliver() {
 	// element is on State S3 it is ready to be delivered.
 	if r.lastHead == nil {
 		r.lastHead = curr
-		v := curr.(Message)
-		if v.State == S3 {
+		v := curr.(types.Message)
+		if v.State == types.S3 {
 			r.Dequeue(curr)
 			r.deliver(curr)
 		}
@@ -159,7 +160,7 @@ func (r *RQueue) verifyAndDeliver() {
 
 	// I already knew an element and the head looks like to have an
 	// element, must verify if they are different.
-	if r.validateMessageChange(r.lastHead.(Message), curr.(Message)) {
+	if r.validateMessageChange(r.lastHead.(types.Message), curr.(types.Message)) {
 		r.lastHead = curr
 		r.Dequeue(curr)
 		r.deliver(curr)
@@ -184,7 +185,7 @@ func (r *RQueue) poll() {
 // Will verify if the message can be added into the set.
 // The cache will hold messages that already removed and
 // cannot be inserted again.
-func (r *RQueue) verifyAndInsert(message Message) bool {
+func (r *RQueue) verifyAndInsert(message types.Message) bool {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	r.set.AddOrUpdate(string(message.Identifier), sortedset.SCORE(message.Timestamp), message)
@@ -196,13 +197,13 @@ func (r *RQueue) verifyAndInsert(message Message) bool {
 // if the value already exists it will be updated and if
 // there is need the values will be sorted again.
 func (r *RQueue) Enqueue(i interface{}) bool {
-	m := i.(Message)
+	m := i.(types.Message)
 	if !r.IsEligible(m) {
 		return false
 	}
 	exists := r.GetIfExists(string(m.Identifier))
 	if exists != nil {
-		v := exists.(Message)
+		v := exists.(types.Message)
 		// I can only change the message state if the new message contains
 		// a timestamp at lest equals to the already present on memory and
 		// a state that is currently higher or equal than the previous one.
@@ -241,7 +242,7 @@ func (r *RQueue) Dequeue(i interface{}) interface{} {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	m := i.(Message)
+	m := i.(types.Message)
 	value := r.set.GetByKey(string(m.Identifier))
 	if value != nil {
 		r.applied.Set(string(m.Identifier))
@@ -268,17 +269,17 @@ func (r *RQueue) GenericDeliver(i interface{}) {
 		return
 	}
 
-	message := i.(Message)
+	message := i.(types.Message)
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
 	min := r.set.PeekMin()
 	max := r.set.PeekMax()
 
-	var messages []Message
+	var messages []types.Message
 	if min != nil && max != nil {
 		for _, node := range r.set.GetByScoreRange(min.Score(), max.Score(), nil) {
-			value := node.Value.(Message)
+			value := node.Value.(types.Message)
 			if value.Identifier != message.Identifier {
 				messages = append(messages, value)
 			}

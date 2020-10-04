@@ -1,4 +1,4 @@
-package internal
+package types
 
 // This interface will be created by the client, so its
 // own logger can be provided. If none is provided the default

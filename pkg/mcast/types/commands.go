@@ -1,4 +1,4 @@
-package internal
+package types
 
 // Unique identifier to be associated with the message.
 // When a request is made, the user will receive this unique

@@ -1,4 +1,4 @@
-package internal
+package helper
 
 import (
 	crand "crypto/rand"

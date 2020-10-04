@@ -3,8 +3,10 @@ package test
 import (
 	"bytes"
 	"fmt"
-	"github.com/jabolina/go-mcast/internal"
 	"github.com/jabolina/go-mcast/pkg/mcast"
+	"github.com/jabolina/go-mcast/pkg/mcast/core"
+	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"runtime"
 	"sync"
 	"testing"
@@ -25,7 +27,7 @@ func (t *TestInvoker) Spawn(f func()) {
 func (t *TestInvoker) Stop() {
 	t.group.Wait()
 }
-func NewInvoker() internal.Invoker {
+func NewInvoker() core.Invoker {
 	return &TestInvoker{
 		group: &sync.WaitGroup{},
 	}
@@ -33,7 +35,7 @@ func NewInvoker() internal.Invoker {
 
 type UnityCluster struct {
 	T       *testing.T
-	Names   []internal.Partition
+	Names   []types.Partition
 	Unities []mcast.Unity
 	mutex   *sync.Mutex
 	group   *sync.WaitGroup
@@ -49,18 +51,18 @@ func (c *UnityCluster) Off() {
 	c.group.Wait()
 }
 
-func NewTestingUnity(configuration *internal.Configuration) (mcast.Unity, error) {
+func NewTestingUnity(configuration *types.Configuration) (mcast.Unity, error) {
 	invk := NewInvoker()
-	var peers []internal.PartitionPeer
+	var peers []core.PartitionPeer
 	for i := 0; i < configuration.Replication; i++ {
-		pc := &internal.PeerConfiguration{
+		pc := &types.PeerConfiguration{
 			Name:      fmt.Sprintf("%s-%d", configuration.Name, i),
 			Partition: configuration.Name,
 			Version:   configuration.Version,
 			Conflict:  configuration.Conflict,
 			Storage:   configuration.Storage,
 		}
-		peer, err := internal.NewPeer(pc, configuration.Logger)
+		peer, err := core.NewPeer(pc, configuration.Logger)
 		if err != nil {
 			return nil, err
 		}
@@ -76,9 +78,9 @@ func NewTestingUnity(configuration *internal.Configuration) (mcast.Unity, error)
 	return pu, nil
 }
 
-func CreateUnity(name internal.Partition, t *testing.T) mcast.Unity {
+func CreateUnity(name types.Partition, t *testing.T) mcast.Unity {
 	conf := mcast.DefaultConfiguration(name)
-	conf.Logger.ToggleDebug(false)
+	conf.Logger.ToggleDebug(true)
 	unity, err := NewTestingUnity(conf)
 	if err != nil {
 		t.Fatalf("failed creating unity %s. %v", name, err)
@@ -91,11 +93,11 @@ func CreateCluster(clusterSize int, prefix string, t *testing.T) *UnityCluster {
 		T:     t,
 		group: &sync.WaitGroup{},
 		mutex: &sync.Mutex{},
-		Names: make([]internal.Partition, clusterSize),
+		Names: make([]types.Partition, clusterSize),
 	}
 	var unities []mcast.Unity
 	for i := 0; i < clusterSize; i++ {
-		name := internal.Partition(fmt.Sprintf("%s-%s", prefix, internal.GenerateUID()))
+		name := types.Partition(fmt.Sprintf("%s-%s", prefix, helper.GenerateUID()))
 		cluster.Names[i] = name
 		unities = append(unities, CreateUnity(name, t))
 	}

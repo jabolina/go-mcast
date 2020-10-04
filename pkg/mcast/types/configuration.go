@@ -1,4 +1,4 @@
-package internal
+package types
 
 // Holds the peer configuration.
 type PeerConfiguration struct {

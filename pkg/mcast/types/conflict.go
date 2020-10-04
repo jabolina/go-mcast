@@ -1,4 +1,4 @@
-package internal
+package types
 
 // Previous set used by the protocol for handling
 // conflicts and ordering messages.

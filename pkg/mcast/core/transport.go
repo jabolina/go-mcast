@@ -1,8 +1,9 @@
-package internal
+package core
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"github.com/jabolina/relt/pkg/relt"
 	"github.com/prometheus/common/log"
 	"time"
@@ -13,16 +14,16 @@ import (
 type Transport interface {
 	// Reliably deliver the message to all correct processes
 	// in the same order.
-	Broadcast(message Message) error
+	Broadcast(message types.Message) error
 
 	// Unicast the message to a single partition.
 	// This do not need to be a reliable transport, since
 	// a partition contains a majority of correct processes
 	// at least 1 process will receive the message.
-	Unicast(message Message, partition Partition) error
+	Unicast(message types.Message, partition types.Partition) error
 
 	// Listen for messages that arrives on the transport.
-	Listen() <-chan Message
+	Listen() <-chan types.Message
 
 	// Close the transport for sending and receiving messages.
 	Close()
@@ -32,13 +33,13 @@ type Transport interface {
 // provides the required reliable transport primitives.
 type ReliableTransport struct {
 	// Transport logger.
-	log Logger
+	log types.Logger
 
 	// Reliable transport.
 	relt *relt.Relt
 
 	// Channel to publish the receiving messages.
-	producer chan Message
+	producer chan types.Message
 
 	// The transport context.
 	context context.Context
@@ -48,7 +49,7 @@ type ReliableTransport struct {
 }
 
 // Create a new instance of the transport interface.
-func NewTransport(peer *PeerConfiguration, log Logger) (Transport, error) {
+func NewTransport(peer *types.PeerConfiguration, log types.Logger) (Transport, error) {
 	conf := relt.DefaultReltConfiguration()
 	conf.Name = peer.Name
 	conf.Exchange = relt.GroupAddress(peer.Partition)
@@ -60,7 +61,7 @@ func NewTransport(peer *PeerConfiguration, log Logger) (Transport, error) {
 	t := &ReliableTransport{
 		log:      log,
 		relt:     r,
-		producer: make(chan Message),
+		producer: make(chan types.Message),
 		context:  ctx,
 		finish:   done,
 	}
@@ -69,7 +70,7 @@ func NewTransport(peer *PeerConfiguration, log Logger) (Transport, error) {
 }
 
 // ReliableTransport implements Transport interface.
-func (r *ReliableTransport) Broadcast(message Message) error {
+func (r *ReliableTransport) Broadcast(message types.Message) error {
 	data, err := json.Marshal(message)
 	if err != nil {
 		log.Errorf("failed marshalling message %#v. %v", message, err)
@@ -91,7 +92,7 @@ func (r *ReliableTransport) Broadcast(message Message) error {
 }
 
 // ReliableTransport implements Transport interface.
-func (r *ReliableTransport) Unicast(message Message, partition Partition) error {
+func (r *ReliableTransport) Unicast(message types.Message, partition types.Partition) error {
 	data, err := json.Marshal(message)
 	if err != nil {
 		log.Errorf("failed marshalling unicast message %#v. %v", message, err)
@@ -105,7 +106,7 @@ func (r *ReliableTransport) Unicast(message Message, partition Partition) error 
 }
 
 // ReliableTransport implements Transport interface.
-func (r *ReliableTransport) Listen() <-chan Message {
+func (r *ReliableTransport) Listen() <-chan types.Message {
 	return r.producer
 }
 
@@ -158,7 +159,7 @@ func (r *ReliableTransport) consume(recv relt.Recv) {
 		return
 	}
 
-	var m Message
+	var m types.Message
 	if err := json.Unmarshal(recv.Data, &m); err != nil {
 		r.log.Errorf("failed unmarshalling message %#v. %v", recv, err)
 		return

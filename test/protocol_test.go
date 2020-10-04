@@ -2,13 +2,13 @@ package test
 
 import (
 	"bytes"
-	"github.com/jabolina/go-mcast/internal"
+	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"testing"
 	"time"
 )
 
 func TestProtocol_BootstrapUnity(t *testing.T) {
-	partitionName := internal.Partition("bootstrap-1-unity")
+	partitionName := types.Partition("bootstrap-1-unity")
 	unity := CreateUnity(partitionName, t)
 	unity.Shutdown()
 }
@@ -24,15 +24,15 @@ func TestProtocol_BootstrapUnityCluster(t *testing.T) {
 //
 // Then a response will be queried back from the unity state machine.
 func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
-	partitionName := internal.Partition("single.unity")
+	partitionName := types.Partition("single.unity")
 	unity := CreateUnity(partitionName, t)
 	defer unity.Shutdown()
 	key := []byte("test-key")
 	value := []byte("test")
-	write := internal.Request{
+	write := types.Request{
 		Key:         key,
 		Value:       value,
-		Destination: []internal.Partition{partitionName},
+		Destination: []types.Partition{partitionName},
 	}
 
 	obs := unity.Write(write)
@@ -51,9 +51,9 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 
 	// Now that the write request succeeded the value will
 	// be queried back for validation.
-	read := internal.Request{
+	read := types.Request{
 		Key:         key,
-		Destination: []internal.Partition{partitionName},
+		Destination: []types.Partition{partitionName},
 	}
 
 	res, err := unity.Read(read)
@@ -76,17 +76,17 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 // After the commit the current value will be queried back
 // from another partition.
 func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
-	partitionOne := internal.Partition("single-unity-one")
-	partitionTwo := internal.Partition("single-unity-two")
+	partitionOne := types.Partition("single-unity-one")
+	partitionTwo := types.Partition("single-unity-two")
 	unityOne := CreateUnity(partitionOne, t)
 	unityTwo := CreateUnity(partitionTwo, t)
 	defer unityOne.Shutdown()
 	key := []byte("test-key")
 	value := []byte("test")
-	write := internal.Request{
+	write := types.Request{
 		Key:         key,
 		Value:       value,
-		Destination: []internal.Partition{partitionOne, partitionTwo},
+		Destination: []types.Partition{partitionOne, partitionTwo},
 	}
 
 	obs := unityOne.Write(write)
@@ -110,9 +110,9 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 
 	// Now that the write request succeeded the value will
 	// be queried back for validation.
-	read := internal.Request{
+	read := types.Request{
 		Key:         key,
-		Destination: []internal.Partition{partitionOne, partitionTwo},
+		Destination: []types.Partition{partitionOne, partitionTwo},
 	}
 
 	res, err := unityTwo.Read(read)
@@ -135,8 +135,8 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 // that the second partition do not contains the applied value
 // while the first partition contains.
 func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
-	partitionOne := internal.Partition("a-single-unity-one")
-	partitionTwo := internal.Partition("b-single-unity-two")
+	partitionOne := types.Partition("a-single-unity-one")
+	partitionTwo := types.Partition("b-single-unity-two")
 	unityOne := CreateUnity(partitionOne, t)
 	unityTwo := CreateUnity(partitionTwo, t)
 	defer func() {
@@ -146,10 +146,10 @@ func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 
 	key := []byte("test-key")
 	value := []byte("test")
-	write := internal.Request{
+	write := types.Request{
 		Key:         key,
 		Value:       value,
-		Destination: []internal.Partition{partitionOne},
+		Destination: []types.Partition{partitionOne},
 	}
 
 	// First a value will be written on the state machine for
@@ -169,9 +169,9 @@ func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 	// Now that the write request was applied to the first partition
 	// we verify that the second partition do not contains the applied
 	// value.
-	doNotExist := internal.Request{
+	doNotExist := types.Request{
 		Key:         key,
-		Destination: []internal.Partition{partitionOne, partitionTwo},
+		Destination: []types.Partition{partitionOne, partitionTwo},
 	}
 
 	res, err := unityTwo.Read(doNotExist)
@@ -190,9 +190,9 @@ func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 	// Now that we verified that the second partition do not have the
 	// applied command, the first partition is verified and it must
 	// contains the applied request.
-	read := internal.Request{
+	read := types.Request{
 		Key:         key,
-		Destination: []internal.Partition{partitionOne, partitionTwo},
+		Destination: []types.Partition{partitionOne, partitionTwo},
 	}
 
 	res, err = unityOne.Read(read)
