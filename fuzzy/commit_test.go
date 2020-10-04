@@ -95,3 +95,56 @@ func Test_ConcurrentCommands(t *testing.T) {
 	time.Sleep(30 * time.Second)
 	cluster.DoesAllClusterMatch(key)
 }
+
+func Test_ConcurrentCommandsMultiplePartitions(t *testing.T) {
+	cluster := test.CreateCluster(3, "multi-partitions", t)
+	defer func() {
+		ch := make(chan bool)
+		defer close(ch)
+		go func() {
+			cluster.Off()
+			ch <- true
+		}()
+		select {
+		case <-ch:
+			break
+		case <-time.After(30 * time.Second):
+			t.Error("Shutdown failed on time")
+			test.PrintStackTrace(t)
+		}
+		goleak.VerifyNone(t)
+	}()
+
+	partitionA := []byte("partition-a")
+	partitionB := []byte("partition-b")
+	partitionC := []byte("partition-c")
+	keys := [][]byte{partitionA, partitionB, partitionC}
+	choosePartition := func(idx int) []byte {
+		position := idx % len(keys)
+		return keys[position]
+	}
+	group := sync.WaitGroup{}
+	write := func(idx int, val string) {
+		defer group.Done()
+		u := cluster.Next()
+		at := choosePartition(idx)
+		log.Printf("*********** Sending %s to %s ***********", val, string(at))
+		req := test.GenerateRequest(at, []byte(val), cluster.Names)
+		res := <-u.Write(req)
+		if !res.Success {
+			t.Errorf("Failed writing %s to %s request %v", val, string(at), res.Failure)
+		}
+	}
+
+	for idx, content := range test.Alphabet {
+		group.Add(1)
+		go write(idx, content)
+	}
+
+	group.Wait()
+	time.Sleep(30 * time.Second)
+
+	for _, key := range keys {
+		cluster.DoesAllClusterMatch(key)
+	}
+}
