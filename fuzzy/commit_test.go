@@ -96,6 +96,11 @@ func Test_ConcurrentCommands(t *testing.T) {
 	cluster.DoesAllClusterMatch(key)
 }
 
+// This test creates a single cluster with 3 peers.
+// Then it will send concurrent commands for 3 different keys.
+// The commands will be concurrent only inside the destination partition
+// and will not conflict with commands for other partitions, this depends
+// on the conflict relationship that is used.
 func Test_ConcurrentCommandsMultiplePartitions(t *testing.T) {
 	cluster := test.CreateCluster(3, "multi-partitions", t)
 	defer func() {
