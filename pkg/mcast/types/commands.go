@@ -157,3 +157,24 @@ type Message struct {
 func (m *Message) Extract() ProtocolHeader {
 	return m.Header
 }
+
+func (m Message) Cmp(m2 Message) int {
+	if m.Timestamp < m2.Timestamp {
+		return -1
+	}
+
+	if m.Timestamp > m2.Timestamp {
+		return 1
+	}
+
+	keyA := string(m.Identifier)
+	keyB := string(m2.Identifier)
+	if keyA < keyB {
+		return -1
+	}
+
+	if keyA > keyB {
+		return 1
+	}
+	return 0
+}
