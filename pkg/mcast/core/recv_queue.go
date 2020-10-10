@@ -1,6 +1,7 @@
 package core
 
 import (
+	"container/heap"
 	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"time"
@@ -48,6 +49,16 @@ func NewPriorityQueue(ch chan <- types.Message, validation func(message types.Me
 	return q
 }
 
+func (p priorityQueue) notifyChannel(value types.Message) {
+	select {
+	case p.notification <- value:
+		break
+	case <-time.After(100 * time.Millisecond):
+		fmt.Printf("Failed notifying about the head change")
+		break
+	}
+}
+
 func (p priorityQueue) Len() int {
 	return len(p.values)
 }
@@ -55,7 +66,7 @@ func (p priorityQueue) Len() int {
 func (p priorityQueue) Less(i, j int) bool {
 	messageA := p.values[i]
 	messageB := p.values[j]
-	return messageA.value.Cmp(messageB.value) >= 0
+	return messageA.value.Cmp(messageB.value) < 0
 }
 
 func (p priorityQueue) Swap(i, j int) {
@@ -64,24 +75,25 @@ func (p priorityQueue) Swap(i, j int) {
 	p.values[j].index = j
 
 	if i == 0 && p.validation(p.values[i].value) {
-		select {
-		case p.notification <- p.values[i].value:
-			break
-		case <-time.After(100 * time.Millisecond):
-			fmt.Printf("Failed notifying about the head change")
-			break
-		}
+		p.notifyChannel(p.values[i].value)
 	}
 }
 
 func (p *priorityQueue) Push(x interface{}) {
+	defer heap.Init(p)
 	msg := x.(types.Message)
 	size := len(p.values)
 	item := &item{value: msg, index: size}
+
+	if size == 0 {
+		p.notifyChannel(msg)
+	}
+
 	p.values = append(p.values, item)
 }
 
 func (p *priorityQueue) Pop() interface{} {
+	defer heap.Init(p)
 	old := p.values
 	size := len(old)
 	item := old[size-1]
