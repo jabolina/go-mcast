@@ -158,6 +158,18 @@ func (m *Message) Extract() ProtocolHeader {
 	return m.Header
 }
 
+// This method compares two messages for sorting reasons, following
+// the already defined sorting for the protocol.
+// First we verify the messages timestamps and if both are equal,
+// then sort the message using the UID.
+// For this method exists 3 results:
+//
+// m < m2 -> -1
+// m > m2 -> 1
+// m = m2 -> 0
+//
+// Even though exists the possibility for the value `0` be returned,
+// this should not happen, since all messages will have unique identifiers.
 func (m Message) Cmp(m2 Message) int {
 	if m.Timestamp < m2.Timestamp {
 		return -1

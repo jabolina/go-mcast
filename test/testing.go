@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 )
 
 type TestInvoker struct {
@@ -80,7 +81,7 @@ func NewTestingUnity(configuration *types.Configuration) (mcast.Unity, error) {
 
 func CreateUnity(name types.Partition, t *testing.T) mcast.Unity {
 	conf := mcast.DefaultConfiguration(name)
-	conf.Logger.ToggleDebug(true)
+	conf.Logger.ToggleDebug(false)
 	unity, err := NewTestingUnity(conf)
 	if err != nil {
 		t.Fatalf("failed creating unity %s. %v", name, err)
@@ -166,4 +167,18 @@ func PrintStackTrace(t *testing.T) {
 	buf := make([]byte, 1<<16)
 	runtime.Stack(buf, true)
 	t.Errorf("%s", buf)
+}
+
+func WaitThisOrTimeout(cb func(), duration time.Duration) bool {
+	done := make(chan bool)
+	go func() {
+		cb()
+		done <- true
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(duration):
+		return false
+	}
 }
