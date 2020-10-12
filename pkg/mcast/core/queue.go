@@ -101,7 +101,7 @@ func NewQueue(ctx context.Context, conflict types.ConflictRelationship, f func(i
 		applied:    NewTtlCache(ctx),
 		headChange: headChannel,
 		deliver:    f,
-		set:        NewPriorityQueue(headChannel, func(m types.Message) bool {
+		set: NewPriorityQueue(headChannel, func(m types.Message) bool {
 			return m.State == types.S3
 		}),
 	}
@@ -151,7 +151,7 @@ func (r *RQueue) poll() {
 		select {
 		case <-r.ctx.Done():
 			return
-		case m :=<- r.headChange:
+		case m := <-r.headChange:
 			InvokerInstance().Spawn(func() {
 				r.verifyAndDeliverHead(m)
 			})

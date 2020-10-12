@@ -190,3 +190,7 @@ func (m Message) Cmp(m2 Message) int {
 	}
 	return 0
 }
+
+func (m Message) Diff(m2 Message) bool {
+	return m.Identifier != m2.Identifier || m.Timestamp != m2.Timestamp || m.State != m2.State
+}

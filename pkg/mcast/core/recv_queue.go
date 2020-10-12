@@ -54,7 +54,7 @@ type PriorityQueue struct {
 	values []types.Message
 
 	// A channel for notification about changes on the head element.
-	notification chan <- types.Message
+	notification chan<- types.Message
 
 	// A function to verify if the given element can be notified.
 	validation func(message types.Message) bool
@@ -100,7 +100,7 @@ func (p *PriorityQueue) remove() *types.Message {
 	old := p.values
 	n := len(old)
 	item := old[n-1]
-	(*p).values = old[0:n-1]
+	(*p).values = old[0 : n-1]
 	return &item
 }
 
@@ -118,7 +118,7 @@ func (p *PriorityQueue) up(j int) {
 func (p *PriorityQueue) down(start, n int) bool {
 	root := start
 	for {
-		tmpLeft := 2 * root + 1
+		tmpLeft := 2*root + 1
 		if tmpLeft >= n || tmpLeft < 0 {
 			break
 		}
@@ -156,12 +156,17 @@ func (p *PriorityQueue) Push(x types.Message) {
 		headStart := p.values[0]
 		defer func() {
 			headCurrent := p.values[0]
-			if headStart.Identifier != headCurrent.Identifier && p.validation(headCurrent) {
+			if headStart.Diff(headCurrent) && p.validation(headCurrent) {
 				p.sendNotification()
 			}
 		}()
 	} else {
-		defer p.sendNotification()
+		defer func() {
+			head := p.values[0]
+			if p.validation(head) {
+				p.sendNotification()
+			}
+		}()
 	}
 
 	index := p.getIndexByUid(x.Identifier)
@@ -184,11 +189,10 @@ func (p *PriorityQueue) Pop() *types.Message {
 		return nil
 	}
 
-	headStart := p.values[0]
 	defer func() {
 		if p.Len() > 0 {
 			headCurrent := p.values[0]
-			if headStart.Identifier != headCurrent.Identifier && p.validation(headCurrent) {
+			if p.validation(headCurrent) {
 				p.sendNotification()
 			}
 		}
@@ -216,7 +220,7 @@ func (p *PriorityQueue) Remove(uid types.UID) {
 	defer func() {
 		if p.Len() > 0 {
 			headCurrent := p.values[0]
-			if headStart.Identifier != headCurrent.Identifier && p.validation(headCurrent) {
+			if headStart.Diff(headCurrent) && p.validation(headCurrent) {
 				p.sendNotification()
 			}
 		}
@@ -245,4 +249,3 @@ func (p *PriorityQueue) GetByKey(uid types.UID) *types.Message {
 	}
 	return &p.values[index]
 }
-

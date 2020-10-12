@@ -12,7 +12,7 @@ import (
 
 type holder struct {
 	timestamp uint64
-	mutex sync.Mutex
+	mutex     sync.Mutex
 }
 
 func (h *holder) Set(value uint64) {
@@ -28,7 +28,7 @@ func (h *holder) Get() uint64 {
 }
 
 type safeSlice struct {
-	data []uint64
+	data  []uint64
 	mutex sync.Mutex
 }
 
@@ -58,7 +58,7 @@ func TestQueue_ShouldNotifyAboutHead(t *testing.T) {
 	q := core.NewPriorityQueue(ch, validation)
 
 	msg := types.Message{
-		Timestamp: 0,
+		Timestamp:  0,
 		Identifier: types.UID(helper.GenerateUID()),
 	}
 
@@ -107,7 +107,7 @@ func TestQueue_ShouldSetLowestOnHead(t *testing.T) {
 	// Insert from 5 to 0. This will trigger 5 head changes.
 	for i := 5; i >= 0; i -= 1 {
 		msg := types.Message{
-			Timestamp: uint64(i),
+			Timestamp:  uint64(i),
 			Identifier: types.UID(helper.GenerateUID()),
 		}
 		q.Push(msg)
@@ -116,7 +116,7 @@ func TestQueue_ShouldSetLowestOnHead(t *testing.T) {
 	// Insert from 6 to 10, this will not change the head.
 	for i := 6; i <= 10; i += 1 {
 		msg := types.Message{
-			Timestamp: uint64(i),
+			Timestamp:  uint64(i),
 			Identifier: types.UID(helper.GenerateUID()),
 		}
 		q.Push(msg)
@@ -178,7 +178,7 @@ func TestQueue_ShouldHaveSmallestConcurrent(t *testing.T) {
 		// Insert from 5 to 0. This will trigger 5 head changes.
 		for i := 5; i >= 0; i -= 1 {
 			msg := types.Message{
-				Timestamp: uint64(i),
+				Timestamp:  uint64(i),
 				Identifier: types.UID(helper.GenerateUID()),
 			}
 			go q.Push(msg)
@@ -189,7 +189,7 @@ func TestQueue_ShouldHaveSmallestConcurrent(t *testing.T) {
 		// Insert from 6 to 10, this will not change the head.
 		for i := 6; i <= 10; i += 1 {
 			msg := types.Message{
-				Timestamp: uint64(i),
+				Timestamp:  uint64(i),
 				Identifier: types.UID(helper.GenerateUID()),
 			}
 			go q.Push(msg)
@@ -258,7 +258,7 @@ func TestQueue_ShouldEnqueueAndDequeue(t *testing.T) {
 		// Insert from 10 to 0. The head will change for every value.
 		for i := 10; i >= 0; i -= 1 {
 			msg := types.Message{
-				Timestamp: uint64(i),
+				Timestamp:  uint64(i),
 				Identifier: types.UID(helper.GenerateUID()),
 			}
 			go q.Push(msg)
@@ -291,8 +291,67 @@ func TestQueue_ShouldEnqueueAndDequeue(t *testing.T) {
 	// The change on the head also happened on the asc order, from 1 to 10.
 	// The value 0 was the first head and was not added to the read slice.
 	for i := 1; i < read.Len(); i++ {
-		if read.Get(i - 1) != uint64(i) {
-			t.Errorf("expected %d at %d, found %d", i, i - 1, read.Get(i - 1))
+		if read.Get(i-1) != uint64(i) {
+			t.Errorf("expected %d at %d, found %d", i, i-1, read.Get(i-1))
+		}
+	}
+
+	done <- true
+	group.Wait()
+}
+
+func TestQueue_NotificationWillClearQueue(t *testing.T) {
+	ch := make(chan types.Message)
+	done := make(chan bool)
+	read := safeSlice{
+		data:  []uint64{},
+		mutex: sync.Mutex{},
+	}
+	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
+		return message.State == types.S3
+	})
+
+	group := sync.WaitGroup{}
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		for {
+			select {
+			case <-done:
+				return
+			case v := <-ch:
+				read.Add(v.Timestamp)
+				go q.Pop()
+			}
+		}
+	}()
+
+	var added []types.Message
+
+	// Insert from 10 to 1. The head will change for every value.
+	for i := 10; i >= 0; i -= 1 {
+		msg := types.Message{
+			Timestamp:  uint64(i),
+			Identifier: types.UID(helper.GenerateUID()),
+		}
+		q.Push(msg)
+		added = append(added, msg)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	for _, item := range added {
+		item.State = types.S3
+		q.Push(item)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	if read.Len() != 11 {
+		t.Errorf("Expected 11 items, found %d", read.Len())
+	}
+
+	for i := 0; i < read.Len(); i++ {
+		if read.Get(i) != uint64(i) {
+			t.Errorf("expected %d at %d, found %d", i, i, read.Get(i))
 		}
 	}
 

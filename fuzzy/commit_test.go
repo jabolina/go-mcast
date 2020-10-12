@@ -48,7 +48,7 @@ func Test_SequentialCommands(t *testing.T) {
 func Test_ConcurrentCommands(t *testing.T) {
 	cluster := test.CreateCluster(3, "concurrent", t)
 	defer func() {
-		if !test.WaitThisOrTimeout(cluster.Off, 30 * time.Second) {
+		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
 			t.Error("failed shutdown cluster")
 			test.PrintStackTrace(t)
 		}
@@ -76,6 +76,7 @@ func Test_ConcurrentCommands(t *testing.T) {
 	if !test.WaitThisOrTimeout(group.Wait, 30*time.Second) {
 		t.Errorf("not finished all after 30 seconds!")
 	} else {
+		time.Sleep(10 * time.Second)
 		cluster.DoesAllClusterMatch(key)
 	}
 }
