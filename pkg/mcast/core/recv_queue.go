@@ -96,6 +96,9 @@ func (p *PriorityQueue) sendNotification() {
 	}
 }
 
+// Remove the last element from the values slice and return it.
+// This method does not verify for the slice length,
+// is the caller responsibility to call it when a value exists.
 func (p *PriorityQueue) remove() *types.Message {
 	old := p.values
 	n := len(old)
@@ -104,6 +107,7 @@ func (p *PriorityQueue) remove() *types.Message {
 	return &item
 }
 
+// Heap up method, see heap.up.
 func (p *PriorityQueue) up(j int) {
 	for {
 		parent := (j - 1) / 2
@@ -115,6 +119,7 @@ func (p *PriorityQueue) up(j int) {
 	}
 }
 
+// Heap down method, see heap.down.
 func (p *PriorityQueue) down(start, n int) bool {
 	root := start
 	for {
@@ -136,23 +141,38 @@ func (p *PriorityQueue) down(start, n int) bool {
 	return root > start
 }
 
+// Implements the sort.Interface.
+// Return the length of the queue.
 func (p *PriorityQueue) Len() int {
 	return len(p.values)
 }
 
+// Implements the sort.Interface.
+// Verify if the value at index i < value at index j.
 func (p *PriorityQueue) Less(i, j int) bool {
 	return p.values[i].Cmp(p.values[j]) < 0
 }
 
+// Implements the sort.Interface.
+// Swap the items for the given indexes.
 func (p *PriorityQueue) Swap(i, j int) {
 	p.values[i], p.values[j] = p.values[j], p.values[i]
 }
 
+// Implements the RecvQueue interface.
+// Add or update an element for the PriorityQueue.
+// If the value already exists it will be replace by the given
+// value, otherwise it will be added.
+// After that, if the head changed, a notification will be sent.
+// In both cases, the heap algorithm will be executed prior to
+// verifying the head for changes.
 func (p *PriorityQueue) Push(x types.Message) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	if p.Len() > 0 {
+		// If the head already contains an element.
+		// We must verify it with the value when the function returns.
 		headStart := p.values[0]
 		defer func() {
 			headCurrent := p.values[0]
@@ -163,6 +183,9 @@ func (p *PriorityQueue) Push(x types.Message) {
 	} else {
 		defer func() {
 			head := p.values[0]
+			// We know the head was empty and now has a value, so
+			// it definitely changed, now only verify if the value
+			// can notify.
 			if p.validation(head) {
 				p.sendNotification()
 			}
@@ -181,6 +204,11 @@ func (p *PriorityQueue) Push(x types.Message) {
 	}
 }
 
+// Implements the RecvQueue interface.
+// Read and remove the element at the head of the queue.
+// If no value exists, return nil.
+// If the value at the head of the queue changed, a notification
+// will be sent.
 func (p *PriorityQueue) Pop() *types.Message {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -191,6 +219,9 @@ func (p *PriorityQueue) Pop() *types.Message {
 
 	defer func() {
 		if p.Len() > 0 {
+			// The Pop method will remove the head element, so
+			// if we still have elements the head definitely changed,
+			// we only need to verify if the value can notify.
 			headCurrent := p.values[0]
 			if p.validation(headCurrent) {
 				p.sendNotification()
@@ -201,12 +232,14 @@ func (p *PriorityQueue) Pop() *types.Message {
 	n := p.Len() - 1
 	p.values[0], p.values[n] = p.values[n], p.values[0]
 	p.down(0, n)
-	if n == 0 {
-		p.Swap(0, 0)
-	}
 	return p.remove()
 }
 
+// Implements the RecvQueue interface.
+// Removes the element associated with the given UID.
+// If the element does not exists, do nothing. If the
+// element removal changes the head of the queue, a notification
+// will be sent.
 func (p *PriorityQueue) Remove(uid types.UID) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -216,6 +249,9 @@ func (p *PriorityQueue) Remove(uid types.UID) {
 		return
 	}
 
+	// We are not sure if the removed element is the
+	// head, so we will verify the old head with the
+	// current after the function returns.
 	headStart := p.values[0]
 	defer func() {
 		if p.Len() > 0 {
@@ -236,12 +272,14 @@ func (p *PriorityQueue) Remove(uid types.UID) {
 	p.remove()
 }
 
+// Implements the RecvQueue interface.
 func (p *PriorityQueue) Values() []types.Message {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	return p.values
 }
 
+// Implements the RecvQueue interface.
 func (p *PriorityQueue) GetByKey(uid types.UID) *types.Message {
 	index := p.getIndexByUid(uid)
 	if index < 0 {

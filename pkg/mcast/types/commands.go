@@ -191,6 +191,11 @@ func (m Message) Cmp(m2 Message) int {
 	return 0
 }
 
+// Verify if the two messages are different.
+// To be different we must verify only the Identifier,
+// Timestamp and State.
+// It can be the same message, but with a updated Timestamp
+// or State.
 func (m Message) Diff(m2 Message) bool {
 	return m.Identifier != m2.Identifier || m.Timestamp != m2.Timestamp || m.State != m2.State
 }

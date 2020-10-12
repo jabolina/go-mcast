@@ -37,6 +37,9 @@ func NewTtlCache(ctx context.Context) Cache {
 	return c
 }
 
+// Will keep running while the context is open.
+// Every minute, this method will try to remove
+// the expired cache keys.
 func (t *TtlCache) poll() {
 	for {
 		select {
@@ -48,6 +51,9 @@ func (t *TtlCache) poll() {
 	}
 }
 
+// Clean expired cache keys if possible.
+// See that is not crucial that remove the elements when the
+// method is called, they can be removed a minute later.
 func (t *TtlCache) cleanExpired() {
 	if atomic.CompareAndSwapInt32(&t.lock, 0x0, 0x1) {
 		now := time.Now()
@@ -60,6 +66,8 @@ func (t *TtlCache) cleanExpired() {
 	}
 }
 
+// Try to add a new value to the cache. What will happen if the
+// atomic value is not 0x0?
 func (t *TtlCache) Set(id string) {
 	if atomic.CompareAndSwapInt32(&t.lock, 0x0, 0x1) {
 		if !t.Contains(id) {
@@ -69,6 +77,8 @@ func (t *TtlCache) Set(id string) {
 	}
 }
 
+// Unsafely verify if a value exists on the cache.
+// This can result in a data race, depending on who called.
 func (t *TtlCache) Contains(id string) bool {
 	_, ok := t.data[id]
 	return ok

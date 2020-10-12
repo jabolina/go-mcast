@@ -39,11 +39,12 @@ type Queue interface {
 
 // Implements the queue interface. This will be used by a single
 // peer to hold information about processing messages. Internally
-// will be used a sorted set to retain the messages, using this
+// will be used a priority queue to retain the messages, using this
 // approach when can have as faster delivery process, since we
 // need only to verify the message on the head of the queue,
-// and since the data structure is a set, there is the guarantee
-// that only a single element will exists.
+// and since the data structure is a priority queue, we will have a
+// sorted collection, with the element at the head the probably next
+// element to be delivered.
 //
 // The set will be sorted following the rules applied to deliver
 // the messages, which means:
@@ -54,7 +55,10 @@ type Queue interface {
 // Following this approach, in the head of the set will always be
 // the probably next message to be delivered, since it will contain
 // the lowest timestamp, when the head arrives on State S3 it will
-// be delivered exactly once.
+// be delivered exactly once. Using the implemented PriorityQueue,
+// we will receive updates about changes on the head of the queue,
+// so the RQueue responsibility will be to verify if the value was
+// no previously applied and send back through the deliver callback.
 type RQueue struct {
 	// The parent context, this will be used to shutdown the
 	// poll method and close the queue in a way not graceful.
@@ -80,15 +84,9 @@ type RQueue struct {
 	// when delivering messages.
 	conflict types.ConflictRelationship
 
-	// Deliver function to be executed when the head element
-	// changes.
+	// Deliver function to be executed when the head element changes.
+	// We will be notified by the PriorityQueue.
 	deliver func(interface{})
-
-	// Last known item on the head, used to ensure an exactly
-	// once deliver of the messages.
-	// The deliver will be called only when a change occurs in
-	// the head element.
-	lastHead interface{}
 }
 
 // Create a new queue data structure.
@@ -107,18 +105,6 @@ func NewQueue(ctx context.Context, conflict types.ConflictRelationship, f func(i
 	}
 	InvokerInstance().Spawn(r.poll)
 	return r
-}
-
-// Verify if the given two messages are different.
-// This has a step further to help in the delivery process,
-// where is also verified if the current message in the
-// queue head is on State S3, if so, the message is ready
-// to be delivered.
-func (r RQueue) validateMessageChange(after, before types.Message) bool {
-	if after.Identifier != before.Identifier || after.State != before.State || after.Timestamp < before.Timestamp {
-		return before.State == types.S3
-	}
-	return false
 }
 
 // This method will verify if the given message was
@@ -239,6 +225,12 @@ func (r *RQueue) GenericDeliver(i interface{}) {
 	defer r.mutex.Unlock()
 
 	var messages []types.Message
+	// This will copy the slice at the time of read.
+	// This method does not guarantee that we have the
+	// latest object version, the elements can change after
+	// we read the slice.
+	// Since the elements that will be delivered here could
+	// be delivered at any order, this should not be a problem.
 	for _, value := range r.set.Values() {
 		if value.Identifier != message.Identifier {
 			messages = append(messages, value)
