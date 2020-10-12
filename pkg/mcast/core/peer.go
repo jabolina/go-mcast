@@ -1,8 +1,10 @@
-package internal
+package core
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"sync"
 	"time"
 )
@@ -28,10 +30,10 @@ const (
 // back through the observer channel.
 type observer struct {
 	// Request UID.
-	uid UID
+	uid types.UID
 
 	// Channel to notify the response back.
-	notify chan Response
+	notify chan types.Response
 }
 
 // Interface that a single peer must implement.
@@ -41,7 +43,7 @@ type PartitionPeer interface {
 	// This method does not work in the request-response model
 	// so after the message is committed onto the unity
 	// a response will be sent back through the channel.
-	Command(message Message) <-chan Response
+	Command(message types.Message) <-chan types.Response
 
 	// A fast read directly into the storage.
 	// Since all peers will be consistent, the read
@@ -49,7 +51,7 @@ type PartitionPeer interface {
 	//
 	// See that if a write was issued, is not guaranteed
 	// that the read will be executed after the write.
-	FastRead(request Request) (Response, error)
+	FastRead(request types.Request) (types.Response, error)
 
 	// Stop the peer.
 	Stop()
@@ -68,10 +70,10 @@ type Peer struct {
 
 	// Holds the observers that are waiting for a response
 	// from the issued request.
-	observers map[UID]observer
+	observers map[types.UID]observer
 
 	// Configuration for the peer.
-	configuration *PeerConfiguration
+	configuration *types.PeerConfiguration
 
 	// Transport used for communication between peers
 	// and between partitions.
@@ -93,13 +95,13 @@ type Peer struct {
 	// Holds the peer storage, this will be used
 	// for reads only, all writes will come from the
 	// state machine when a commit is applied.
-	storage Storage
+	storage types.Storage
 
 	// Conflict relationship for ordering the messages.
-	conflict ConflictRelationship
+	conflict types.ConflictRelationship
 
 	// Peer logger.
-	log Logger
+	log types.Logger
 
 	// When external requests exchange timestamp,
 	// this will hold the received values.
@@ -107,7 +109,7 @@ type Peer struct {
 
 	// When a message state is updated locally
 	// and need to trigger the process again.
-	updated chan Message
+	updated chan types.Message
 
 	// The peer cancellable context.
 	context context.Context
@@ -118,7 +120,7 @@ type Peer struct {
 
 // Creates a new peer for the given configuration and
 // start polling for new messages.
-func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error) {
+func NewPeer(configuration *types.PeerConfiguration, log types.Logger) (PartitionPeer, error) {
 	t, err := NewTransport(configuration, log)
 	if err != nil {
 		return nil, err
@@ -133,7 +135,7 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 
 	p := &Peer{
 		mutex:         &sync.Mutex{},
-		observers:     make(map[UID]observer),
+		observers:     make(map[types.UID]observer),
 		invoker:       InvokerInstance(),
 		configuration: configuration,
 		transport:     t,
@@ -146,12 +148,12 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 		conflict:    configuration.Conflict,
 		log:         log,
 		received:    NewMemo(),
-		updated:     make(chan Message),
+		updated:     make(chan types.Message),
 		context:     ctx,
 		finish:      done,
 	}
 	applyDeliver := func(i interface{}) {
-		p.doDeliver(i.(Message))
+		p.doDeliver(i.(types.Message))
 	}
 	p.rqueue = NewQueue(ctx, configuration.Conflict, applyDeliver)
 	p.invoker.Spawn(p.poll)
@@ -159,12 +161,12 @@ func NewPeer(configuration *PeerConfiguration, log Logger) (PartitionPeer, error
 }
 
 // Implements the PartitionPeer interface.
-func (p *Peer) Command(message Message) <-chan Response {
-	res := make(chan Response)
+func (p *Peer) Command(message types.Message) <-chan types.Response {
+	res := make(chan types.Response)
 	apply := func() {
 		err := p.transport.Broadcast(message)
 		if err != nil {
-			finalResponse := Response{
+			finalResponse := types.Response{
 				Success:    false,
 				Identifier: message.Identifier,
 				Data:       message.Content.Content,
@@ -192,8 +194,8 @@ func (p *Peer) Command(message Message) <-chan Response {
 }
 
 // Implements the PartitionPeer interface.
-func (p *Peer) FastRead(request Request) (Response, error) {
-	res := Response{
+func (p *Peer) FastRead(request types.Request) (types.Response, error) {
+	res := types.Response{
 		Success:    false,
 		Identifier: "",
 		Data:       nil,
@@ -205,7 +207,7 @@ func (p *Peer) FastRead(request Request) (Response, error) {
 		res.Failure = err
 		return res, err
 	}
-	var entry Entry
+	var entry types.Entry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		res.Failure = err
 		return res, nil
@@ -243,7 +245,7 @@ func (p *Peer) poll() {
 				return
 			}
 			p.invoker.Spawn(func() {
-				p.send(m, Initial, inner)
+				p.send(m, types.Initial, inner)
 			})
 		case m, ok := <-p.transport.Listen():
 			if !ok {
@@ -266,7 +268,7 @@ func (p *Peer) poll() {
 // After processing the message, updates the value on the
 // received queue and then trigger the deliver method to
 // start commit on the state machine.
-func (p Peer) process(message Message) {
+func (p Peer) process(message types.Message) {
 	header := message.Extract()
 	if header.ProtocolVersion != p.configuration.Version {
 		p.log.Warnf("peer not processing message %#v on version %d", message, header.ProtocolVersion)
@@ -284,10 +286,10 @@ func (p Peer) process(message Message) {
 	}()
 
 	switch header.Type {
-	case Initial:
+	case types.Initial:
 		p.log.Debugf("processing internal request %#v", message)
 		p.processInitialMessage(&message)
-	case External:
+	case types.External:
 		p.log.Debugf("processing external request %#v", message)
 		enqueue = p.exchangeTimestamp(&message)
 	default:
@@ -315,8 +317,8 @@ func (p Peer) process(message Message) {
 // final timestamp, thus m.State can be updated to the final state S3 and, if
 // m.Timestamp is greater than local clock value, the clock is updated to hold
 // the received timestamp and the previousSet can be cleaned.
-func (p *Peer) processInitialMessage(message *Message) {
-	if message.State == S0 {
+func (p *Peer) processInitialMessage(message *types.Message) {
+	if message.State == types.S0 {
 		if p.conflict.Conflict(*message, p.previousSet.Snapshot()) {
 			p.clock.Tick()
 			p.previousSet.Clear()
@@ -326,13 +328,13 @@ func (p *Peer) processInitialMessage(message *Message) {
 	}
 
 	if len(message.Destination) > 1 {
-		if message.State == S0 {
-			message.State = S1
+		if message.State == types.S0 {
+			message.State = types.S1
 			message.Timestamp = p.clock.Tock()
 			p.received.Insert(message.Identifier, p.configuration.Partition, message.Timestamp)
-			p.send(*message, External, outer)
-		} else if message.State == S2 {
-			message.State = S3
+			p.send(*message, types.External, outer)
+		} else if message.State == types.S2 {
+			message.State = types.S3
 			if message.Timestamp > p.clock.Tock() {
 				p.clock.Leap(message.Timestamp)
 				p.previousSet.Clear()
@@ -340,7 +342,7 @@ func (p *Peer) processInitialMessage(message *Message) {
 		}
 	} else {
 		message.Timestamp = p.clock.Tock()
-		message.State = S3
+		message.State = types.S3
 	}
 }
 
@@ -353,19 +355,19 @@ func (p *Peer) processInitialMessage(message *Message) {
 // is greater or equal to tsm, in positive case, a second consensus instance can be
 // avoided and, the state of m can jump directly to state S3 since the group local
 // clock is already bigger than tsm.
-func (p *Peer) exchangeTimestamp(message *Message) bool {
+func (p *Peer) exchangeTimestamp(message *types.Message) bool {
 	p.received.Insert(message.Identifier, message.From, message.Timestamp)
 	values := p.received.Read(message.Identifier)
 	if len(values) < len(message.Destination) {
 		return false
 	}
 
-	tsm := MaxValue(values)
+	tsm := helper.MaxValue(values)
 	if message.Timestamp >= tsm {
-		message.State = S3
+		message.State = types.S3
 	} else {
 		message.Timestamp = tsm
-		message.State = S2
+		message.State = types.S2
 	}
 	return true
 }
@@ -374,10 +376,10 @@ func (p *Peer) exchangeTimestamp(message *Message) bool {
 // Used for request across partitions, when exchanging the
 // message timestamp or when broadcasting the message internally
 // inside a partition.
-func (p Peer) send(message Message, t MessageType, emission emission) {
+func (p Peer) send(message types.Message, t types.MessageType, emission emission) {
 	message.Header.Type = t
 	message.From = p.configuration.Partition
-	var destination []Partition
+	var destination []types.Partition
 	if emission == inner {
 		destination = append(destination, p.configuration.Partition)
 	} else {
@@ -399,7 +401,7 @@ func (p Peer) send(message Message, t MessageType, emission emission) {
 // will be updated on the rqueue, and if the message is on the
 // state S0 or S2 it needs to be broadcast internally to the
 // partition.
-func (p *Peer) finishMessageProcessing(message *Message) {
+func (p *Peer) finishMessageProcessing(message *types.Message) {
 	defer func() {
 		recover()
 	}()
@@ -417,13 +419,13 @@ func (p *Peer) finishMessageProcessing(message *Message) {
 // This methods receives the UID instead of the message
 // object, so this ensures that the r_queue and the
 // protocols see the same object state.
-func (p Peer) reprocessMessage(uid UID) {
+func (p Peer) reprocessMessage(uid types.UID) {
 	value := p.rqueue.GetIfExists(string(uid))
 	if value == nil {
 		return
 	}
-	message := value.(Message)
-	if message.State == S0 || message.State == S2 {
+	message := value.(types.Message)
+	if message.State == types.S0 || message.State == types.S2 {
 		select {
 		case <-p.context.Done():
 			return
@@ -435,7 +437,7 @@ func (p Peer) reprocessMessage(uid UID) {
 		}
 	}
 
-	if message.State == S3 {
+	if message.State == types.S3 {
 		p.rqueue.GenericDeliver(message)
 	}
 }
@@ -451,7 +453,7 @@ func (p Peer) reprocessMessage(uid UID) {
 // contains the lowest timestamp, so the message is ready to
 // be delivered, which means, it will be committed on the
 // local peer state machine.
-func (p *Peer) doDeliver(m Message) {
+func (p *Peer) doDeliver(m types.Message) {
 	p.received.Remove(m.Identifier)
 	res := p.deliver.Commit(m)
 	p.invoker.Spawn(func() {

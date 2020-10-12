@@ -1,4 +1,4 @@
-package internal
+package types
 
 // Unique identifier to be associated with the message.
 // When a request is made, the user will receive this unique
@@ -156,4 +156,46 @@ type Message struct {
 // Extract the message header.
 func (m *Message) Extract() ProtocolHeader {
 	return m.Header
+}
+
+// This method compares two messages for sorting reasons, following
+// the already defined sorting for the protocol.
+// First we verify the messages timestamps and if both are equal,
+// then sort the message using the UID.
+// For this method exists 3 results:
+//
+// m < m2 -> -1
+// m > m2 -> 1
+// m = m2 -> 0
+//
+// Even though exists the possibility for the value `0` be returned,
+// this should not happen, since all messages will have unique identifiers.
+func (m Message) Cmp(m2 Message) int {
+	if m.Timestamp < m2.Timestamp {
+		return -1
+	}
+
+	if m.Timestamp > m2.Timestamp {
+		return 1
+	}
+
+	keyA := string(m.Identifier)
+	keyB := string(m2.Identifier)
+	if keyA < keyB {
+		return -1
+	}
+
+	if keyA > keyB {
+		return 1
+	}
+	return 0
+}
+
+// Verify if the two messages are different.
+// To be different we must verify only the Identifier,
+// Timestamp and State.
+// It can be the same message, but with a updated Timestamp
+// or State.
+func (m Message) Diff(m2 Message) bool {
+	return m.Identifier != m2.Identifier || m.Timestamp != m2.Timestamp || m.State != m2.State
 }

@@ -1,7 +1,8 @@
 package fuzzy
 
 import (
-	"github.com/jabolina/go-mcast/internal"
+	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"github.com/jabolina/go-mcast/test"
 	"testing"
 	"time"
@@ -12,9 +13,9 @@ import (
 // and with no failure injection after a second the
 // partitions will be closed one by one.
 func Test_CleanMultiplePartitions(t *testing.T) {
-	p1 := internal.Partition(internal.GenerateUID())
-	p2 := internal.Partition(internal.GenerateUID())
-	p3 := internal.Partition(internal.GenerateUID())
+	p1 := types.Partition(helper.GenerateUID())
+	p2 := types.Partition(helper.GenerateUID())
+	p3 := types.Partition(helper.GenerateUID())
 
 	u1 := test.CreateUnity(p1, t)
 	u2 := test.CreateUnity(p2, t)

@@ -1,4 +1,4 @@
-package internal
+package types
 
 // Used to provide storage for the state machine values.
 type Storage interface {

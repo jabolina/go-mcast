@@ -1,4 +1,4 @@
-package internal
+package types
 
 // Used to transfer information.
 type DataHolder struct {

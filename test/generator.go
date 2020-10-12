@@ -1,27 +1,30 @@
 package test
 
-import "github.com/jabolina/go-mcast/internal"
+import (
+	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/types"
+)
 
-func GenerateRandomRequest(partitions []internal.Partition) internal.Request {
-	return internal.Request{
-		Key:         []byte(internal.GenerateUID()),
-		Value:       []byte(internal.GenerateUID()),
-		Extra:       []byte(internal.GenerateUID()),
+func GenerateRandomRequest(partitions []types.Partition) types.Request {
+	return types.Request{
+		Key:         []byte(helper.GenerateUID()),
+		Value:       []byte(helper.GenerateUID()),
+		Extra:       []byte(helper.GenerateUID()),
 		Destination: partitions,
 	}
 }
 
-func GenerateRandomRequestValue(key []byte, partitions []internal.Partition) internal.Request {
-	return internal.Request{
+func GenerateRandomRequestValue(key []byte, partitions []types.Partition) types.Request {
+	return types.Request{
 		Key:         key,
-		Value:       []byte(internal.GenerateUID()),
-		Extra:       []byte(internal.GenerateUID()),
+		Value:       []byte(helper.GenerateUID()),
+		Extra:       []byte(helper.GenerateUID()),
 		Destination: partitions,
 	}
 }
 
-func GenerateRequest(key, value []byte, partitions []internal.Partition) internal.Request {
-	return internal.Request{
+func GenerateRequest(key, value []byte, partitions []types.Partition) types.Request {
+	return types.Request{
 		Key:         key,
 		Value:       value,
 		Extra:       nil,
@@ -32,7 +35,7 @@ func GenerateRequest(key, value []byte, partitions []internal.Partition) interna
 func GenerateDataArray(size int) []string {
 	data := make([]string, size)
 	for i := 0; i < size; i++ {
-		data[i] = internal.GenerateUID()
+		data[i] = helper.GenerateUID()
 	}
 	return data
 }

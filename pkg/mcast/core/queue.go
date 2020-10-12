@@ -1,8 +1,8 @@
-package internal
+package core
 
 import (
 	"context"
-	"github.com/wangjia184/sortedset"
+	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"sync"
 	"time"
 )
@@ -12,9 +12,6 @@ type Queue interface {
 	// Add a new item and returns true if a change
 	// occurred and false otherwise.
 	Enqueue(interface{}) bool
-
-	// Pick the first item from the queue.
-	Pick() interface{}
 
 	// Remove the given item from the queue.
 	Dequeue(interface{}) interface{}
@@ -42,11 +39,12 @@ type Queue interface {
 
 // Implements the queue interface. This will be used by a single
 // peer to hold information about processing messages. Internally
-// will be used a sorted set to retain the messages, using this
+// will be used a priority queue to retain the messages, using this
 // approach when can have as faster delivery process, since we
 // need only to verify the message on the head of the queue,
-// and since the data structure is a set, there is the guarantee
-// that only a single element will exists.
+// and since the data structure is a priority queue, we will have a
+// sorted collection, with the element at the head the probably next
+// element to be delivered.
 //
 // The set will be sorted following the rules applied to deliver
 // the messages, which means:
@@ -57,7 +55,10 @@ type Queue interface {
 // Following this approach, in the head of the set will always be
 // the probably next message to be delivered, since it will contain
 // the lowest timestamp, when the head arrives on State S3 it will
-// be delivered exactly once.
+// be delivered exactly once. Using the implemented PriorityQueue,
+// we will receive updates about changes on the head of the queue,
+// so the RQueue responsibility will be to verify if the value was
+// no previously applied and send back through the deliver callback.
 type RQueue struct {
 	// The parent context, this will be used to shutdown the
 	// poll method and close the queue in a way not graceful.
@@ -66,6 +67,10 @@ type RQueue struct {
 	// Synchronization for operations applied on the set.
 	mutex *sync.Mutex
 
+	// Channel that will receive information about the changes
+	// in the head of the queue.
+	headChange chan types.Message
+
 	// Keep track of messages that where already applied
 	// onto the state machine.
 	applied Cache
@@ -73,48 +78,33 @@ type RQueue struct {
 	// Actual message values. The values will be kept
 	// inside a sorted set, so we can have the guarantee
 	// of unique items while keeping the queue behaviour.
-	set *sortedset.SortedSet
+	set RecvQueue
 
 	// Hold the conflict relationship to be used
 	// when delivering messages.
-	conflict ConflictRelationship
+	conflict types.ConflictRelationship
 
-	// Deliver function to be executed when the head element
-	// changes.
+	// Deliver function to be executed when the head element changes.
+	// We will be notified by the PriorityQueue.
 	deliver func(interface{})
-
-	// Last known item on the head, used to ensure an exactly
-	// once deliver of the messages.
-	// The deliver will be called only when a change occurs in
-	// the head element.
-	lastHead interface{}
 }
 
 // Create a new queue data structure.
-func NewQueue(ctx context.Context, conflict ConflictRelationship, f func(interface{})) Queue {
-	c := NewTtlCache(ctx)
+func NewQueue(ctx context.Context, conflict types.ConflictRelationship, f func(interface{})) Queue {
+	headChannel := make(chan types.Message)
 	r := &RQueue{
-		ctx:      ctx,
-		mutex:    &sync.Mutex{},
-		conflict: conflict,
-		applied:  c,
-		set:      sortedset.New(),
-		deliver:  f,
+		ctx:        ctx,
+		mutex:      &sync.Mutex{},
+		conflict:   conflict,
+		applied:    NewTtlCache(ctx),
+		headChange: headChannel,
+		deliver:    f,
+		set: NewPriorityQueue(headChannel, func(m types.Message) bool {
+			return m.State == types.S3
+		}),
 	}
 	InvokerInstance().Spawn(r.poll)
 	return r
-}
-
-// Verify if the given two messages are different.
-// This has a step further to help in the delivery process,
-// where is also verified if the current message in the
-// queue head is on State S3, if so, the message is ready
-// to be delivered.
-func (r RQueue) validateMessageChange(after, before Message) bool {
-	if after.Identifier != before.Identifier || after.State != before.State || after.Timestamp < before.Timestamp {
-		return before.State == S3
-	}
-	return false
 }
 
 // This method will verify if the given message was
@@ -124,46 +114,18 @@ func (r RQueue) validateMessageChange(after, before Message) bool {
 func (r *RQueue) IsEligible(i interface{}) bool {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	m := i.(Message)
+	m := i.(types.Message)
 	return !r.applied.Contains(string(m.Identifier))
 }
 
-// This method will verify if the element at the head
-// of the set is ready to be delivered. Since the set
-// already sorts the messages at the right order, we
-// only need that the element at the head of the set
-// be on State S3.
-// If the message is ready, the subscribed deliver method
-// will be called with the element, once the message is
-// delivered it will also be removed from the set.
-func (r *RQueue) verifyAndDeliver() {
-	curr := r.Pick()
-
-	// If the head still empty, no work to do.
-	if curr == nil {
-		return
+func (r RQueue) verifyAndDeliverHead(message types.Message) {
+	if r.IsEligible(message) {
+		r.mutex.Lock()
+		defer r.mutex.Unlock()
+		r.applied.Set(string(message.Identifier))
+		r.deliver(message)
 	}
-
-	// If the head is not empty, but the last element
-	// I know is empty, so the head changed. If the new
-	// element is on State S3 it is ready to be delivered.
-	if r.lastHead == nil {
-		r.lastHead = curr
-		v := curr.(Message)
-		if v.State == S3 {
-			r.Dequeue(curr)
-			r.deliver(curr)
-		}
-		return
-	}
-
-	// I already knew an element and the head looks like to have an
-	// element, must verify if they are different.
-	if r.validateMessageChange(r.lastHead.(Message), curr.(Message)) {
-		r.lastHead = curr
-		r.Dequeue(curr)
-		r.deliver(curr)
-	}
+	r.set.Pop()
 }
 
 // This method will be polling while the application is
@@ -175,8 +137,12 @@ func (r *RQueue) poll() {
 		select {
 		case <-r.ctx.Done():
 			return
-		case <-time.After(5 * time.Millisecond):
-			r.verifyAndDeliver()
+		case m := <-r.headChange:
+			InvokerInstance().Spawn(func() {
+				r.verifyAndDeliverHead(m)
+			})
+		case <-time.After(10 * time.Second):
+			r.set.Values()
 		}
 	}
 }
@@ -184,10 +150,10 @@ func (r *RQueue) poll() {
 // Will verify if the message can be added into the set.
 // The cache will hold messages that already removed and
 // cannot be inserted again.
-func (r *RQueue) verifyAndInsert(message Message) bool {
+func (r *RQueue) verifyAndInsert(message types.Message) bool {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	r.set.AddOrUpdate(string(message.Identifier), sortedset.SCORE(message.Timestamp), message)
+	r.set.Push(message)
 	return true
 }
 
@@ -196,13 +162,13 @@ func (r *RQueue) verifyAndInsert(message Message) bool {
 // if the value already exists it will be updated and if
 // there is need the values will be sorted again.
 func (r *RQueue) Enqueue(i interface{}) bool {
-	m := i.(Message)
+	m := i.(types.Message)
 	if !r.IsEligible(m) {
 		return false
 	}
 	exists := r.GetIfExists(string(m.Identifier))
 	if exists != nil {
-		v := exists.(Message)
+		v := exists.(types.Message)
 		// I can only change the message state if the new message contains
 		// a timestamp at lest equals to the already present on memory and
 		// a state that is currently higher or equal than the previous one.
@@ -223,30 +189,16 @@ func (r *RQueue) Subscribe(f func(interface{})) {
 }
 
 // Implements the Queue interface.
-// Get the element on the head of the set.
-// This element will probably be the next
-// message to be delivered.
-func (r *RQueue) Pick() interface{} {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	v := r.set.PeekMin()
-	if v != nil {
-		return v.Value
-	}
-	return nil
-}
-
-// Implements the Queue interface.
 func (r *RQueue) Dequeue(i interface{}) interface{} {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	m := i.(Message)
-	value := r.set.GetByKey(string(m.Identifier))
+	m := i.(types.Message)
+	value := r.set.GetByKey(m.Identifier)
 	if value != nil {
 		r.applied.Set(string(m.Identifier))
-		r.set.Remove(string(m.Identifier))
-		return value.Value
+		r.set.Remove(m.Identifier)
+		return value
 	}
 	return nil
 }
@@ -255,9 +207,9 @@ func (r *RQueue) Dequeue(i interface{}) interface{} {
 func (r *RQueue) GetIfExists(id string) interface{} {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	v := r.set.GetByKey(id)
+	v := r.set.GetByKey(types.UID(id))
 	if v != nil {
-		return v.Value
+		return *v
 	}
 	return nil
 }
@@ -268,20 +220,20 @@ func (r *RQueue) GenericDeliver(i interface{}) {
 		return
 	}
 
-	message := i.(Message)
+	message := i.(types.Message)
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	min := r.set.PeekMin()
-	max := r.set.PeekMax()
-
-	var messages []Message
-	if min != nil && max != nil {
-		for _, node := range r.set.GetByScoreRange(min.Score(), max.Score(), nil) {
-			value := node.Value.(Message)
-			if value.Identifier != message.Identifier {
-				messages = append(messages, value)
-			}
+	var messages []types.Message
+	// This will copy the slice at the time of read.
+	// This method does not guarantee that we have the
+	// latest object version, the elements can change after
+	// we read the slice.
+	// Since the elements that will be delivered here could
+	// be delivered at any order, this should not be a problem.
+	for _, value := range r.set.Values() {
+		if value.Identifier != message.Identifier {
+			messages = append(messages, value)
 		}
 	}
 

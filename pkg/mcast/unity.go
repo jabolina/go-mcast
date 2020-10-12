@@ -2,7 +2,9 @@ package mcast
 
 import (
 	"fmt"
-	"github.com/jabolina/go-mcast/internal"
+	"github.com/jabolina/go-mcast/pkg/mcast/core"
+	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/types"
 )
 
 // The unity interface, responsible for interacting
@@ -22,10 +24,10 @@ type Unity interface {
 	// applied successfully a channel will be returned where
 	// a response will be sent back once the request is applied
 	// in one of the participants.
-	Write(request internal.Request) <-chan internal.Response
+	Write(request types.Request) <-chan types.Response
 
 	// Query a value from the unity.
-	Read(request internal.Request) (internal.Response, error)
+	Read(request types.Request) (types.Response, error)
 
 	// Shutdown the unity.
 	// This is NOT a graceful shutdown, everything that
@@ -36,31 +38,31 @@ type Unity interface {
 // Concrete implementation of the Unity interface.
 type PeerUnity struct {
 	// Hold all peers.
-	Peers []internal.PartitionPeer
+	Peers []core.PartitionPeer
 
 	// Hold the configuration for the whole unity.
-	Configuration *internal.Configuration
+	Configuration *types.Configuration
 
 	// Used to iterate amongst all peers in a
 	// round robin way.
 	Last int
 
 	// Used to spawn and control go routines.
-	Invoker internal.Invoker
+	Invoker core.Invoker
 }
 
-func NewUnity(configuration *internal.Configuration) (Unity, error) {
-	invk := internal.InvokerInstance()
-	var peers []internal.PartitionPeer
+func NewUnity(configuration *types.Configuration) (Unity, error) {
+	invk := core.InvokerInstance()
+	var peers []core.PartitionPeer
 	for i := 0; i < configuration.Replication; i++ {
-		pc := &internal.PeerConfiguration{
+		pc := &types.PeerConfiguration{
 			Name:      fmt.Sprintf("%s-%d", configuration.Name, i),
 			Partition: configuration.Name,
 			Version:   configuration.Version,
 			Conflict:  configuration.Conflict,
 			Storage:   configuration.Storage,
 		}
-		peer, err := internal.NewPeer(pc, configuration.Logger)
+		peer, err := core.NewPeer(pc, configuration.Logger)
 		if err != nil {
 			return nil, err
 		}
@@ -77,21 +79,21 @@ func NewUnity(configuration *internal.Configuration) (Unity, error) {
 }
 
 // Implements the Unity interface.
-func (p *PeerUnity) Write(request internal.Request) <-chan internal.Response {
-	id := internal.UID(internal.GenerateUID())
-	message := internal.Message{
-		Header: internal.ProtocolHeader{
+func (p *PeerUnity) Write(request types.Request) <-chan types.Response {
+	id := types.UID(helper.GenerateUID())
+	message := types.Message{
+		Header: types.ProtocolHeader{
 			ProtocolVersion: p.Configuration.Version,
-			Type:            internal.Initial,
+			Type:            types.Initial,
 		},
 		Identifier: id,
-		Content: internal.DataHolder{
-			Operation:  internal.Command,
+		Content: types.DataHolder{
+			Operation:  types.Command,
 			Key:        request.Key,
 			Content:    request.Value,
 			Extensions: request.Extra,
 		},
-		State:       internal.S0,
+		State:       types.S0,
 		Timestamp:   0,
 		Destination: request.Destination,
 		From:        p.Configuration.Name,
@@ -102,7 +104,7 @@ func (p *PeerUnity) Write(request internal.Request) <-chan internal.Response {
 }
 
 // Implements the Unity interface.
-func (p *PeerUnity) Read(request internal.Request) (internal.Response, error) {
+func (p *PeerUnity) Read(request types.Request) (types.Response, error) {
 	peer := p.resolveNextPeer()
 	return peer.FastRead(request)
 }
@@ -117,7 +119,7 @@ func (p *PeerUnity) Shutdown() {
 
 // Returns the next peer to be used. This will
 // work as a round robin chain.
-func (p PeerUnity) resolveNextPeer() internal.PartitionPeer {
+func (p PeerUnity) resolveNextPeer() core.PartitionPeer {
 	defer func() {
 		p.Last += 1
 	}()

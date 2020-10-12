@@ -1,12 +1,15 @@
-package internal
+package core
 
-import "sync"
+import (
+	"github.com/jabolina/go-mcast/pkg/mcast/types"
+	"sync"
+)
 
 // An exchange object to be used when holding information
 // about the exchanged timestamps.
 type exchanged struct {
 	// Which partition sent the timestamp.
-	from Partition
+	from types.Partition
 
 	// The timestamp for the partition.
 	timestamp uint64
@@ -19,13 +22,13 @@ type Memo struct {
 
 	// Holds information as serialized values for a
 	// unique key.
-	values map[UID][]exchanged
+	values map[types.UID][]exchanged
 }
 
 func NewMemo() *Memo {
 	return &Memo{
 		mutex:  &sync.Mutex{},
-		values: make(map[UID][]exchanged),
+		values: make(map[types.UID][]exchanged),
 	}
 }
 
@@ -35,7 +38,7 @@ func NewMemo() *Memo {
 // voted for a timestamp than the vote can be ignored,
 // since is needed only a single peer from each partition
 // to send the timestamp.
-func (m *Memo) Insert(key UID, from Partition, value uint64) {
+func (m *Memo) Insert(key types.UID, from types.Partition, value uint64) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	_, exists := m.values[key]
@@ -69,7 +72,7 @@ func (m *Memo) Insert(key UID, from Partition, value uint64) {
 
 // This method will remove the information
 // from the voted timestamp from the memo.
-func (m *Memo) Remove(key UID) {
+func (m *Memo) Remove(key types.UID) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	delete(m.values, key)
@@ -77,7 +80,7 @@ func (m *Memo) Remove(key UID) {
 
 // This method will return all proposed values
 // to a message.
-func (m *Memo) Read(key UID) []uint64 {
+func (m *Memo) Read(key types.UID) []uint64 {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	var timestamps []uint64

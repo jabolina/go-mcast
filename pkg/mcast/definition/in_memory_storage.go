@@ -1,4 +1,4 @@
-package mcast
+package definition
 
 import (
 	"fmt"

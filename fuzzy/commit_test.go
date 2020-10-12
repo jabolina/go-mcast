@@ -17,16 +17,7 @@ import (
 func Test_SequentialCommands(t *testing.T) {
 	cluster := test.CreateCluster(3, "alphabet", t)
 	defer func() {
-		ch := make(chan bool)
-		defer close(ch)
-		go func() {
-			cluster.Off()
-			ch <- true
-		}()
-		select {
-		case <-ch:
-			break
-		case <-time.After(30 * time.Second):
+		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
 			t.Error("failed shutdown cluster")
 			test.PrintStackTrace(t)
 		}
@@ -57,16 +48,7 @@ func Test_SequentialCommands(t *testing.T) {
 func Test_ConcurrentCommands(t *testing.T) {
 	cluster := test.CreateCluster(3, "concurrent", t)
 	defer func() {
-		ch := make(chan bool)
-		defer close(ch)
-		go func() {
-			cluster.Off()
-			ch <- true
-		}()
-		select {
-		case <-ch:
-			break
-		case <-time.After(30 * time.Second):
+		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
 			t.Error("failed shutdown cluster")
 			test.PrintStackTrace(t)
 		}
@@ -91,7 +73,10 @@ func Test_ConcurrentCommands(t *testing.T) {
 		go write(i, content)
 	}
 
-	group.Wait()
-	time.Sleep(30 * time.Second)
-	cluster.DoesAllClusterMatch(key)
+	if !test.WaitThisOrTimeout(group.Wait, 30*time.Second) {
+		t.Errorf("not finished all after 30 seconds!")
+	} else {
+		time.Sleep(10 * time.Second)
+		cluster.DoesAllClusterMatch(key)
+	}
 }
