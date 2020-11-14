@@ -2,11 +2,13 @@ package test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast"
 	"github.com/jabolina/go-mcast/pkg/mcast/core"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
+	"github.com/prometheus/common/log"
 	"runtime"
 	"sync"
 	"testing"
@@ -55,6 +57,7 @@ func (c *UnityCluster) Off() {
 func NewTestingUnity(configuration *types.Configuration) (mcast.Unity, error) {
 	invk := NewInvoker()
 	var peers []core.PartitionPeer
+	ctx, cancel := context.WithCancel(context.Background())
 	for i := 0; i < configuration.Replication; i++ {
 		pc := &types.PeerConfiguration{
 			Name:      fmt.Sprintf("%s-%d", configuration.Name, i),
@@ -62,9 +65,15 @@ func NewTestingUnity(configuration *types.Configuration) (mcast.Unity, error) {
 			Version:   configuration.Version,
 			Conflict:  configuration.Conflict,
 			Storage:   configuration.Storage,
+			Ctx:       ctx,
+			Cancel:    cancel,
 		}
 		peer, err := core.NewPeer(pc, configuration.Logger)
 		if err != nil {
+			cancel()
+			for _, prevCreated := range peers {
+				prevCreated.Stop()
+			}
 			return nil, err
 		}
 
@@ -75,6 +84,7 @@ func NewTestingUnity(configuration *types.Configuration) (mcast.Unity, error) {
 		Peers:         peers,
 		Last:          0,
 		Invoker:       invk,
+		Finish:        cancel,
 	}
 	return pu, nil
 }
@@ -82,6 +92,7 @@ func NewTestingUnity(configuration *types.Configuration) (mcast.Unity, error) {
 func CreateUnity(name types.Partition, t *testing.T) mcast.Unity {
 	conf := mcast.DefaultConfiguration(name)
 	conf.Logger.ToggleDebug(false)
+	conf.Logger.AddContext(string(name))
 	unity, err := NewTestingUnity(conf)
 	if err != nil {
 		t.Fatalf("failed creating unity %s. %v", name, err)
@@ -120,42 +131,45 @@ func (c *UnityCluster) Next() mcast.Unity {
 	return c.Unities[c.index]
 }
 
-func (c UnityCluster) DoesClusterMatchTo(key []byte, expected []byte) {
-	r := GenerateRandomRequestValue(key, c.Names)
-	for i, unity := range c.Unities {
-		res, err := unity.Read(r)
-		if err != nil {
-			c.T.Errorf("failed reading from partition 1. %v", err)
-			continue
-		}
+func (c UnityCluster) DoesClusterMatchTo(expected []types.DataHolder) {
+	for _, unity := range c.Unities {
+		res := unity.Read()
 
 		if !res.Success {
 			c.T.Errorf("reading partition 1 failed. %v", res.Failure)
 			continue
 		}
+		outputValues(res.Data, string(unity.WhoAmI()))
+		if len(res.Data) != len(expected) {
+			c.T.Errorf("C-Hist differ on size, expected %d found %d", len(expected), len(res.Data))
+		}
 
-		if !bytes.Equal(expected, res.Data) {
-			c.T.Errorf("peer %d differ. %s|%s but expected %s", i, string(res.Data), res.Identifier, string(expected))
+		for index, holder := range res.Data {
+			expectedData := expected[index]
+			if !bytes.Equal(expectedData.Content, holder.Content) {
+				c.T.Errorf("Content differ cmd %d for unity %s, expected %#v, found %#v", index, unity.WhoAmI(), expectedData, holder)
+				continue
+			}
 		}
 	}
 }
 
-func (c UnityCluster) DoesAllClusterMatch(key []byte) {
-	first := c.Unities[0]
-	r := GenerateRandomRequestValue(key, c.Names)
-	res, err := first.Read(r)
-	if err != nil {
-		c.T.Errorf("failed reding first peer. %v", err)
-		return
+func outputValues(values []types.DataHolder, owner string) {
+	log.Infof("--------------------%s-------------------------", owner)
+	for _, value := range values {
+		log.Infof("%s - %d\n", value.Meta.Identifier, value.Meta.Timestamp)
 	}
+}
+
+func (c UnityCluster) DoesAllClusterMatch() {
+	first := c.Unities[0]
+	res := first.Read()
 
 	if !res.Success {
 		c.T.Errorf("something wrong readin. %v", res.Failure)
 		return
 	}
-
-	c.T.Logf("cluster agrees on %s with %s", string(res.Data), res.Identifier)
-	c.DoesClusterMatchTo(key, res.Data)
+	c.DoesClusterMatchTo(res.Data)
 }
 
 func (c *UnityCluster) PoweroffUnity(unity mcast.Unity) {

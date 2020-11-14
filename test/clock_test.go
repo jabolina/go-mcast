@@ -7,7 +7,7 @@ import (
 )
 
 func TestLogicalClock_GroupTick(t *testing.T) {
-	concurrentMembers := 50
+	concurrentMembers := 50000
 	clk := core.NewClock()
 
 	wg := &sync.WaitGroup{}

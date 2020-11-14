@@ -10,11 +10,13 @@ import (
 func TestProtocol_BootstrapUnity(t *testing.T) {
 	partitionName := types.Partition("bootstrap-1-unity")
 	unity := CreateUnity(partitionName, t)
+	time.Sleep(time.Second)
 	unity.Shutdown()
 }
 
 func TestProtocol_BootstrapUnityCluster(t *testing.T) {
 	cluster := CreateCluster(3, "cluster", t)
+	time.Sleep(time.Second)
 	cluster.Off()
 }
 
@@ -27,10 +29,8 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 	partitionName := types.Partition("single.unity")
 	unity := CreateUnity(partitionName, t)
 	defer unity.Shutdown()
-	key := []byte("test-key")
 	value := []byte("test")
 	write := types.Request{
-		Key:         key,
 		Value:       value,
 		Destination: []types.Partition{partitionName},
 	}
@@ -51,22 +51,18 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 
 	// Now that the write request succeeded the value will
 	// be queried back for validation.
-	read := types.Request{
-		Key:         key,
-		Destination: []types.Partition{partitionName},
-	}
-
-	res, err := unity.Read(read)
-	if err != nil {
-		t.Errorf("failed reading value %#v. %v", read, err)
-	}
-
+	res := unity.Read()
 	if !res.Success {
 		t.Errorf("read operation failed. %v", res.Failure)
 	}
 
-	if !bytes.Equal(value, res.Data) {
-		t.Errorf("retrieved response should be %s but was %s", string(value), string(res.Data))
+	if len(res.Data) != 1 {
+		t.Errorf("Expected 1 command, found %d", len(res.Data))
+	}
+
+	cmd := res.Data[0]
+	if !bytes.Equal(value, cmd.Content) {
+		t.Errorf("retrieved response should be %s but was %s", string(value), string(cmd.Content))
 	}
 }
 
@@ -81,10 +77,9 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 	unityOne := CreateUnity(partitionOne, t)
 	unityTwo := CreateUnity(partitionTwo, t)
 	defer unityOne.Shutdown()
-	key := []byte("test-key")
+	defer unityTwo.Shutdown()
 	value := []byte("test")
 	write := types.Request{
-		Key:         key,
 		Value:       value,
 		Destination: []types.Partition{partitionOne, partitionTwo},
 	}
@@ -110,22 +105,19 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 
 	// Now that the write request succeeded the value will
 	// be queried back for validation.
-	read := types.Request{
-		Key:         key,
-		Destination: []types.Partition{partitionOne, partitionTwo},
-	}
-
-	res, err := unityTwo.Read(read)
-	if err != nil {
-		t.Errorf("failed reading value %#v. %v", read, err)
-	}
-
+	res := unityTwo.Read()
 	if !res.Success {
 		t.Errorf("read operation failed. %v", res.Failure)
 	}
 
-	if !bytes.Equal(value, res.Data) {
-		t.Errorf("retrieved response should be %s but was %s", string(value), string(res.Data))
+	if len(res.Data) != 1 {
+		t.Errorf("Expected 1 command, found %d", len(res.Data))
+		return
+	}
+
+	cmd := res.Data[0]
+	if !bytes.Equal(value, cmd.Content) {
+		t.Errorf("retrieved response should be %s but was %s", string(value), string(cmd.Content))
 	}
 }
 
@@ -144,10 +136,8 @@ func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 		unityTwo.Shutdown()
 	}()
 
-	key := []byte("test-key")
 	value := []byte("test")
 	write := types.Request{
-		Key:         key,
 		Value:       value,
 		Destination: []types.Partition{partitionOne},
 	}
@@ -161,7 +151,7 @@ func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 			t.Fatalf("failed writting request %v", res.Failure)
 			return
 		}
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(time.Second):
 		t.Fatalf("write timeout")
 		return
 	}
@@ -169,42 +159,30 @@ func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 	// Now that the write request was applied to the first partition
 	// we verify that the second partition do not contains the applied
 	// value.
-	doNotExist := types.Request{
-		Key:         key,
-		Destination: []types.Partition{partitionOne, partitionTwo},
-	}
+	res := unityTwo.Read()
 
-	res, err := unityTwo.Read(doNotExist)
-	if err == nil {
-		t.Errorf("read should have failed %v. %v", doNotExist, err)
-	}
-
-	if res.Success {
+	if res.Failure != nil {
 		t.Errorf("read operation succeded. %v", res.Failure)
 	}
 
 	if res.Data != nil && len(res.Data) > 0 {
-		t.Errorf("read operation should not contain any value. %s", string(res.Data))
+		t.Errorf("read operation should not contain any value. Found %d", len(res.Data))
 	}
 
 	// Now that we verified that the second partition do not have the
 	// applied command, the first partition is verified and it must
 	// contains the applied request.
-	read := types.Request{
-		Key:         key,
-		Destination: []types.Partition{partitionOne, partitionTwo},
-	}
-
-	res, err = unityOne.Read(read)
-	if err != nil {
-		t.Errorf("failed reading value %v. %v", read, err)
-	}
-
+	res = unityOne.Read()
 	if !res.Success {
 		t.Errorf("read operation failed. %v", res.Failure)
 	}
 
-	if !bytes.Equal(value, res.Data) {
-		t.Errorf("retrieved response should be %s but was %s", string(value), string(res.Data))
+	if len(res.Data) != 1 {
+		t.Errorf("Expected 1 command, found %d", len(res.Data))
+	}
+
+	cmd := res.Data[0]
+	if !bytes.Equal(value, cmd.Content) {
+		t.Errorf("retrieved response should be %s but was %s", string(value), string(cmd.Content))
 	}
 }

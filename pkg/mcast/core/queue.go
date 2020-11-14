@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"sync"
-	"time"
 )
 
 // A Queue interface.
@@ -16,9 +15,8 @@ type Queue interface {
 	// Remove the given item from the queue.
 	Dequeue(interface{}) interface{}
 
-	// Subscribe a function to be executed when the
-	// head element changes.
-	Subscribe(func(interface{}))
+	// Remove the head of the queue.
+	Pop() interface{}
 
 	// Get the element if it exists on the memory.
 	GetIfExists(id string) interface{}
@@ -46,16 +44,16 @@ type Queue interface {
 // sorted collection, with the element at the head the probably next
 // element to be delivered.
 //
-// The set will be sorted following the rules applied to deliver
+// The priorityQueue will be sorted following the rules applied to deliver
 // the messages, which means:
 //
 // 1 - First sort messages by the given Timestamp;
 // 2 - If two messages have the same Timestamp, sort by the UID.
 //
-// Following this approach, in the head of the set will always be
+// Following this approach, in the head of the priorityQueue will always be
 // the probably next message to be delivered, since it will contain
 // the lowest timestamp, when the head arrives on State S3 it will
-// be delivered exactly once. Using the implemented PriorityQueue,
+// be delivered exactly once. Using the implemented Q,
 // we will receive updates about changes on the head of the queue,
 // so the RQueue responsibility will be to verify if the value was
 // no previously applied and send back through the deliver callback.
@@ -64,7 +62,7 @@ type RQueue struct {
 	// poll method and close the queue in a way not graceful.
 	ctx context.Context
 
-	// Synchronization for operations applied on the set.
+	// Synchronization for operations applied on the priorityQueue.
 	mutex *sync.Mutex
 
 	// Channel that will receive information about the changes
@@ -76,21 +74,21 @@ type RQueue struct {
 	applied Cache
 
 	// Actual message values. The values will be kept
-	// inside a sorted set, so we can have the guarantee
+	// inside a sorted priorityQueue, so we can have the guarantee
 	// of unique items while keeping the queue behaviour.
-	set RecvQueue
+	priorityQueue types.ReceivedQueue
 
 	// Hold the conflict relationship to be used
 	// when delivering messages.
 	conflict types.ConflictRelationship
 
 	// Deliver function to be executed when the head element changes.
-	// We will be notified by the PriorityQueue.
-	deliver func(interface{})
+	// We will be notified by the Q.
+	deliver chan<- deliverRequest
 }
 
 // Create a new queue data structure.
-func NewQueue(ctx context.Context, conflict types.ConflictRelationship, f func(interface{})) Queue {
+func NewQueue(ctx context.Context, conflict types.ConflictRelationship, deliver chan<- deliverRequest) Queue {
 	headChannel := make(chan types.Message)
 	r := &RQueue{
 		ctx:        ctx,
@@ -98,8 +96,8 @@ func NewQueue(ctx context.Context, conflict types.ConflictRelationship, f func(i
 		conflict:   conflict,
 		applied:    NewTtlCache(ctx),
 		headChange: headChannel,
-		deliver:    f,
-		set: NewPriorityQueue(headChannel, func(m types.Message) bool {
+		deliver:    deliver,
+		priorityQueue: NewPriorityQueue(headChannel, func(m types.Message) bool {
 			return m.State == types.S3
 		}),
 	}
@@ -112,20 +110,20 @@ func NewQueue(ctx context.Context, conflict types.ConflictRelationship, f func(i
 // The values are held by a cache where each key can
 // live up to 10 minutes.
 func (r *RQueue) IsEligible(i interface{}) bool {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
 	m := i.(types.Message)
 	return !r.applied.Contains(string(m.Identifier))
 }
 
-func (r RQueue) verifyAndDeliverHead(message types.Message) {
+func (r *RQueue) verifyAndDeliverHead(message types.Message) {
 	if r.IsEligible(message) {
-		r.mutex.Lock()
-		defer r.mutex.Unlock()
 		r.applied.Set(string(message.Identifier))
-		r.deliver(message)
+		r.deliver <- deliverRequest{
+			message: message,
+			generic: false,
+		}
+	} else {
+		r.Dequeue(message)
 	}
-	r.set.Pop()
 }
 
 // This method will be polling while the application is
@@ -138,27 +136,21 @@ func (r *RQueue) poll() {
 		case <-r.ctx.Done():
 			return
 		case m := <-r.headChange:
-			InvokerInstance().Spawn(func() {
-				r.verifyAndDeliverHead(m)
-			})
-		case <-time.After(10 * time.Second):
-			r.set.Values()
+			r.verifyAndDeliverHead(m)
 		}
 	}
 }
 
-// Will verify if the message can be added into the set.
+// Will verify if the message can be added into the priorityQueue.
 // The cache will hold messages that already removed and
 // cannot be inserted again.
 func (r *RQueue) verifyAndInsert(message types.Message) bool {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	r.set.Push(message)
+	r.priorityQueue.Push(message)
 	return true
 }
 
 // Implements the Queue interface.
-// This method will add the given element into the set,
+// This method will add the given element into the priorityQueue,
 // if the value already exists it will be updated and if
 // there is need the values will be sorted again.
 func (r *RQueue) Enqueue(i interface{}) bool {
@@ -173,7 +165,7 @@ func (r *RQueue) Enqueue(i interface{}) bool {
 		// a timestamp at lest equals to the already present on memory and
 		// a state that is currently higher or equal than the previous one.
 		// Thus ensuring that the message do not "go back in time".
-		if v.Timestamp <= m.Timestamp && v.State <= m.State {
+		if v.State != types.S3 && v.Updated(m) {
 			return r.verifyAndInsert(m)
 		}
 		return false
@@ -182,34 +174,27 @@ func (r *RQueue) Enqueue(i interface{}) bool {
 }
 
 // Implements the Queue interface.
-// Insert a function that will be called when the
-// element at the head of the queue changes.
-func (r *RQueue) Subscribe(f func(interface{})) {
-	r.deliver = f
-}
-
-// Implements the Queue interface.
 func (r *RQueue) Dequeue(i interface{}) interface{} {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
 	m := i.(types.Message)
-	value := r.set.GetByKey(m.Identifier)
-	if value != nil {
+	value, ok := r.priorityQueue.GetByKey(m.Identifier)
+	if ok {
 		r.applied.Set(string(m.Identifier))
-		r.set.Remove(m.Identifier)
+		r.priorityQueue.Remove(m.Identifier)
 		return value
 	}
 	return nil
 }
 
 // Implements the Queue interface.
+func (r *RQueue) Pop() interface{} {
+	return r.priorityQueue.Pop()
+}
+
+// Implements the Queue interface.
 func (r *RQueue) GetIfExists(id string) interface{} {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	v := r.set.GetByKey(types.UID(id))
-	if v != nil {
-		return *v
+	v, ok := r.priorityQueue.GetByKey(types.UID(id))
+	if ok {
+		return v
 	}
 	return nil
 }
@@ -221,9 +206,6 @@ func (r *RQueue) GenericDeliver(i interface{}) {
 	}
 
 	message := i.(types.Message)
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
 	var messages []types.Message
 	// This will copy the slice at the time of read.
 	// This method does not guarantee that we have the
@@ -231,7 +213,7 @@ func (r *RQueue) GenericDeliver(i interface{}) {
 	// we read the slice.
 	// Since the elements that will be delivered here could
 	// be delivered at any order, this should not be a problem.
-	for _, value := range r.set.Values() {
+	for _, value := range r.priorityQueue.Values() {
 		if value.Identifier != message.Identifier {
 			messages = append(messages, value)
 		}
@@ -241,6 +223,9 @@ func (r *RQueue) GenericDeliver(i interface{}) {
 	// then it can be delivered directly.
 	if !r.conflict.Conflict(message, messages) {
 		r.Dequeue(message)
-		r.deliver(message)
+		r.deliver <- deliverRequest{
+			message: message,
+			generic: true,
+		}
 	}
 }

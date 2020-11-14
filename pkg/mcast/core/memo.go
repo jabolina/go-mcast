@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"sync"
 )
@@ -38,7 +39,7 @@ func NewMemo() *Memo {
 // voted for a timestamp than the vote can be ignored,
 // since is needed only a single peer from each partition
 // to send the timestamp.
-func (m *Memo) Insert(key types.UID, from types.Partition, value uint64) {
+func (m *Memo) Insert(key types.UID, from types.Partition, value uint64) bool {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	_, exists := m.values[key]
@@ -49,25 +50,26 @@ func (m *Memo) Insert(key types.UID, from types.Partition, value uint64) {
 				timestamp: value,
 			},
 		}
-	} else {
-		skip := false
-		for _, e := range m.values[key] {
-			if e.from == from {
-				skip = true
-				if e.timestamp < value {
-					e.timestamp = value
-				}
-				break
-			}
-		}
+		return true
+	}
 
-		if !skip {
-			m.values[key] = append(m.values[key], exchanged{
-				from:      from,
-				timestamp: value,
-			})
+	for _, e := range m.values[key] {
+		if e.from == from {
+			return false
 		}
 	}
+
+	m.values[key] = append(m.values[key], exchanged{
+		from:      from,
+		timestamp: value,
+	})
+	return true
+}
+
+func (m *Memo) Show(at string, key types.UID) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	fmt.Printf("%s @ %s -> %#v\n", key, at, m.values[key])
 }
 
 // This method will remove the information

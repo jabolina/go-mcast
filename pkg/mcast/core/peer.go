@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"sync"
@@ -36,6 +35,11 @@ type observer struct {
 	notify chan types.Response
 }
 
+type deliverRequest struct {
+	message types.Message
+	generic bool
+}
+
 // Interface that a single peer must implement.
 type PartitionPeer interface {
 	// Issues a request to the Generic Multicast protocol.
@@ -51,7 +55,7 @@ type PartitionPeer interface {
 	//
 	// See that if a write was issued, is not guaranteed
 	// that the read will be executed after the write.
-	FastRead(request types.Request) (types.Response, error)
+	FastRead() types.Response
 
 	// Stop the peer.
 	Stop()
@@ -85,23 +89,23 @@ type Peer struct {
 	// The peer received queue, to order the requests.
 	rqueue Queue
 
-	// Previous set for the peer.
+	// Previous priorityQueue for the peer.
 	previousSet PreviousSet
 
 	// Process responsible to deliver messages on the
 	// right order.
 	deliver Deliverable
 
-	// Holds the peer storage, this will be used
+	// Holds the peer logger, this will be used
 	// for reads only, all writes will come from the
 	// state machine when a commit is applied.
-	storage types.Storage
+	logAbstraction types.Log
 
 	// Conflict relationship for ordering the messages.
 	conflict types.ConflictRelationship
 
 	// Peer logger.
-	log types.Logger
+	logger types.Logger
 
 	// When external requests exchange timestamp,
 	// this will hold the received values.
@@ -110,6 +114,10 @@ type Peer struct {
 	// When a message state is updated locally
 	// and need to trigger the process again.
 	updated chan types.Message
+
+	// Channel to receive messages that are ready to
+	// be delivered.
+	delivering chan deliverRequest
 
 	// The peer cancellable context.
 	context context.Context
@@ -120,58 +128,53 @@ type Peer struct {
 
 // Creates a new peer for the given configuration and
 // start polling for new messages.
-func NewPeer(configuration *types.PeerConfiguration, log types.Logger) (PartitionPeer, error) {
-	t, err := NewTransport(configuration, log)
+func NewPeer(configuration *types.PeerConfiguration, logger types.Logger) (PartitionPeer, error) {
+	t, err := NewTransport(configuration, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, done := context.WithCancel(context.Background())
-	deliver, err := NewDeliver(ctx, log, configuration.Conflict, configuration.Storage)
+	logStructure := types.NewLogStructure(configuration.Storage)
+	deliver, err := NewDeliver(configuration.Name, logger, logStructure)
 	if err != nil {
-		done()
+		configuration.Cancel()
 		return nil, err
 	}
 
 	p := &Peer{
-		mutex:         &sync.Mutex{},
-		observers:     make(map[types.UID]observer),
-		invoker:       InvokerInstance(),
-		configuration: configuration,
-		transport:     t,
-		clock: &ProcessClock{
-			mutex: &sync.Mutex{},
-		},
-		previousSet: NewPreviousSet(),
-		deliver:     deliver,
-		storage:     configuration.Storage,
-		conflict:    configuration.Conflict,
-		log:         log,
-		received:    NewMemo(),
-		updated:     make(chan types.Message),
-		context:     ctx,
-		finish:      done,
+		mutex:          &sync.Mutex{},
+		observers:      make(map[types.UID]observer),
+		invoker:        InvokerInstance(),
+		configuration:  configuration,
+		transport:      t,
+		clock:          NewClock(),
+		previousSet:    NewPreviousSet(),
+		deliver:        deliver,
+		logAbstraction: logStructure,
+		conflict:       configuration.Conflict,
+		logger:         logger,
+		received:       NewMemo(),
+		updated:        make(chan types.Message),
+		delivering:     make(chan deliverRequest),
+		context:        configuration.Ctx,
+		finish:         configuration.Cancel,
 	}
-	applyDeliver := func(i interface{}) {
-		p.doDeliver(i.(types.Message))
-	}
-	p.rqueue = NewQueue(ctx, configuration.Conflict, applyDeliver)
+	p.rqueue = NewQueue(configuration.Ctx, configuration.Conflict, p.delivering)
 	p.invoker.Spawn(p.poll)
+	p.invoker.Spawn(p.doDeliver)
 	return p, nil
 }
 
 // Implements the PartitionPeer interface.
 func (p *Peer) Command(message types.Message) <-chan types.Response {
-	res := make(chan types.Response)
+	res := make(chan types.Response, 1)
 	apply := func() {
 		err := p.transport.Broadcast(message)
 		if err != nil {
 			finalResponse := types.Response{
-				Success:    false,
-				Identifier: message.Identifier,
-				Data:       message.Content.Content,
-				Extra:      message.Content.Extensions,
-				Failure:    err,
+				Success: false,
+				Data:    []types.DataHolder{message.Content},
+				Failure: err,
 			}
 
 			select {
@@ -194,36 +197,33 @@ func (p *Peer) Command(message types.Message) <-chan types.Response {
 }
 
 // Implements the PartitionPeer interface.
-func (p *Peer) FastRead(request types.Request) (types.Response, error) {
+func (p *Peer) FastRead() types.Response {
 	res := types.Response{
-		Success:    false,
-		Identifier: "",
-		Data:       nil,
-		Extra:      nil,
-		Failure:    nil,
+		Success: false,
+		Data:    nil,
+		Failure: nil,
 	}
-	data, err := p.storage.Get(request.Key)
+	data, err := p.logAbstraction.Dump()
 	if err != nil {
+		res.Success = false
+		res.Data = nil
 		res.Failure = err
-		return res, err
-	}
-	var entry types.Entry
-	if err := json.Unmarshal(data, &entry); err != nil {
-		res.Failure = err
-		return res, nil
+		return res
 	}
 
 	res.Success = true
-	res.Identifier = entry.Identifier
-	res.Data = entry.Data
-	res.Extra = entry.Extensions
-	return res, nil
+	res.Failure = nil
+	for _, message := range data {
+		res.Data = append(res.Data, message.Content)
+	}
+	return res
 }
 
 // Implements the PartitionPeer interface.
 func (p *Peer) Stop() {
 	defer func() {
 		close(p.updated)
+		close(p.delivering)
 	}()
 	p.finish()
 	p.transport.Close()
@@ -235,7 +235,7 @@ func (p *Peer) Stop() {
 // and processing following the protocol definition.
 // If the context is cancelled, this method will stop.
 func (p *Peer) poll() {
-	defer p.log.Debugf("closing the peer %s", p.configuration.Name)
+	defer p.logger.Debugf("closing the peer %s", p.configuration.Name)
 	for {
 		select {
 		case <-p.context.Done():
@@ -251,9 +251,7 @@ func (p *Peer) poll() {
 			if !ok {
 				return
 			}
-			p.invoker.Spawn(func() {
-				p.process(m)
-			})
+			p.process(m)
 		}
 	}
 }
@@ -268,10 +266,10 @@ func (p *Peer) poll() {
 // After processing the message, updates the value on the
 // received queue and then trigger the deliver method to
 // start commit on the state machine.
-func (p Peer) process(message types.Message) {
+func (p *Peer) process(message types.Message) {
 	header := message.Extract()
 	if header.ProtocolVersion != p.configuration.Version {
-		p.log.Warnf("peer not processing message %#v on version %d", message, header.ProtocolVersion)
+		p.logger.Warnf("peer not processing message %#v on version %d", message, header.ProtocolVersion)
 		return
 	}
 
@@ -280,20 +278,20 @@ func (p Peer) process(message types.Message) {
 	}
 	enqueue := true
 	defer func() {
-		if enqueue {
-			p.finishMessageProcessing(&message)
+		if enqueue && p.rqueue.Enqueue(message) {
+			p.reprocessMessage(message)
 		}
 	}()
 
 	switch header.Type {
 	case types.Initial:
-		p.log.Debugf("processing internal request %#v", message)
+		p.logger.Debugf("processing internal request %#v", message)
 		p.processInitialMessage(&message)
 	case types.External:
-		p.log.Debugf("processing external request %#v", message)
+		p.logger.Debugf("processing external request %#v", message)
 		enqueue = p.exchangeTimestamp(&message)
 	default:
-		p.log.Warnf("unknown message type %d", header.Type)
+		p.logger.Warnf("unknown message type %d", header.Type)
 		enqueue = false
 	}
 }
@@ -311,7 +309,7 @@ func (p Peer) process(message types.Message) {
 // groups and a second consensus can be avoided due to group timestamp is now a
 // final timestamp.
 //
-// Otherwise, for messages on state S0, we set the group timestamp to the value
+// Otherwise, for messages on state S0, we priorityQueue the group timestamp to the value
 // of the process clock, update m.State to S1 and send m to all others groups in
 // m.Destination. On the other hand, to messages on state S2, the message has the
 // final timestamp, thus m.State can be updated to the final state S3 and, if
@@ -331,8 +329,9 @@ func (p *Peer) processInitialMessage(message *types.Message) {
 		if message.State == types.S0 {
 			message.State = types.S1
 			message.Timestamp = p.clock.Tock()
-			p.received.Insert(message.Identifier, p.configuration.Partition, message.Timestamp)
-			p.send(*message, types.External, outer)
+			p.invoker.Spawn(func() {
+				p.send(*message, types.External, outer)
+			})
 		} else if message.State == types.S2 {
 			message.State = types.S3
 			if message.Timestamp > p.clock.Tock() {
@@ -356,10 +355,14 @@ func (p *Peer) processInitialMessage(message *types.Message) {
 // avoided and, the state of m can jump directly to state S3 since the group local
 // clock is already bigger than tsm.
 func (p *Peer) exchangeTimestamp(message *types.Message) bool {
-	p.received.Insert(message.Identifier, message.From, message.Timestamp)
+	if p.alreadyExchangedTimestamps(*message) {
+		return false
+	}
+
+	used := p.received.Insert(message.Identifier, message.From, message.Timestamp)
 	values := p.received.Read(message.Identifier)
 	if len(values) < len(message.Destination) {
-		return false
+		return used
 	}
 
 	tsm := helper.MaxValue(values)
@@ -376,42 +379,26 @@ func (p *Peer) exchangeTimestamp(message *types.Message) bool {
 // Used for request across partitions, when exchanging the
 // message timestamp or when broadcasting the message internally
 // inside a partition.
-func (p Peer) send(message types.Message, t types.MessageType, emission emission) {
+func (p *Peer) send(message types.Message, t types.MessageType, emission emission) {
 	message.Header.Type = t
 	message.From = p.configuration.Partition
 	var destination []types.Partition
 	if emission == inner {
 		destination = append(destination, p.configuration.Partition)
 	} else {
-		for _, partition := range message.Destination {
-			if partition != p.configuration.Partition {
-				destination = append(destination, partition)
-			}
-		}
+		destination = append(destination, message.Destination...)
 	}
 
 	for _, partition := range destination {
 		for err := p.transport.Unicast(message, partition); err != nil; {
-			p.log.Errorf("error unicast %s to partition %s. %v", message.Identifier, partition, err)
+			p.logger.Errorf("error unicast %s to partition %s. %v", message.Identifier, partition, err)
 		}
 	}
 }
 
-// After the message is processed by the protocol, the value
-// will be updated on the rqueue, and if the message is on the
-// state S0 or S2 it needs to be broadcast internally to the
-// partition.
-func (p *Peer) finishMessageProcessing(message *types.Message) {
-	defer func() {
-		recover()
-	}()
-
-	if p.rqueue.Enqueue(*message) {
-		uid := message.Identifier
-		p.invoker.Spawn(func() {
-			p.reprocessMessage(uid)
-		})
-	}
+func (p *Peer) alreadyExchangedTimestamps(message types.Message) bool {
+	values := p.received.Read(message.Identifier)
+	return len(values) == len(message.Destination)
 }
 
 // Verify if the given message needs to be resend
@@ -419,26 +406,24 @@ func (p *Peer) finishMessageProcessing(message *types.Message) {
 // This methods receives the UID instead of the message
 // object, so this ensures that the r_queue and the
 // protocols see the same object state.
-func (p Peer) reprocessMessage(uid types.UID) {
-	value := p.rqueue.GetIfExists(string(uid))
-	if value == nil {
-		return
-	}
-	message := value.(types.Message)
-	if message.State == types.S0 || message.State == types.S2 {
-		select {
-		case <-p.context.Done():
-			return
-		case <-time.After(100 * time.Millisecond):
-			p.reprocessMessage(uid)
-			return
-		case p.updated <- message:
-			return
-		}
+func (p *Peer) reprocessMessage(message types.Message) {
+	if message.State == types.S2 {
+		p.invoker.Spawn(func() {
+			p.publishToReprocess(message)
+		})
 	}
 
 	if message.State == types.S3 {
 		p.rqueue.GenericDeliver(message)
+	}
+}
+
+func (p *Peer) publishToReprocess(message types.Message) {
+	select {
+	case <-p.context.Done():
+		return
+	case p.updated <- message:
+		return
 	}
 }
 
@@ -453,22 +438,31 @@ func (p Peer) reprocessMessage(uid types.UID) {
 // contains the lowest timestamp, so the message is ready to
 // be delivered, which means, it will be committed on the
 // local peer state machine.
-func (p *Peer) doDeliver(m types.Message) {
-	p.received.Remove(m.Identifier)
-	res := p.deliver.Commit(m)
-	p.invoker.Spawn(func() {
-		p.mutex.Lock()
-		defer p.mutex.Unlock()
-		obs, ok := p.observers[m.Identifier]
-		if ok {
-			select {
-			case <-time.After(150 * time.Millisecond):
-				break
-			case obs.notify <- res:
-				break
+func (p *Peer) doDeliver() {
+	for req := range p.delivering {
+		res := p.deliver.Commit(req.message, req.generic)
+		p.invoker.Spawn(func() {
+			m, isGenericDeliver := req.message, req.generic
+			p.received.Remove(m.Identifier)
+			p.mutex.Lock()
+			defer p.mutex.Unlock()
+			obs, ok := p.observers[m.Identifier]
+			if ok {
+				select {
+				case <-p.context.Done():
+					break
+				case <-time.After(150 * time.Millisecond):
+					break
+				case obs.notify <- res:
+					break
+				}
+				close(obs.notify)
+				delete(p.observers, obs.uid)
 			}
-			close(obs.notify)
-			delete(p.observers, obs.uid)
-		}
-	})
+
+			if !isGenericDeliver {
+				p.rqueue.Pop()
+			}
+		})
+	}
 }

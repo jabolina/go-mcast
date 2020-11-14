@@ -5,27 +5,8 @@ import (
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 )
 
-func GenerateRandomRequest(partitions []types.Partition) types.Request {
+func GenerateRequest(value []byte, partitions []types.Partition) types.Request {
 	return types.Request{
-		Key:         []byte(helper.GenerateUID()),
-		Value:       []byte(helper.GenerateUID()),
-		Extra:       []byte(helper.GenerateUID()),
-		Destination: partitions,
-	}
-}
-
-func GenerateRandomRequestValue(key []byte, partitions []types.Partition) types.Request {
-	return types.Request{
-		Key:         key,
-		Value:       []byte(helper.GenerateUID()),
-		Extra:       []byte(helper.GenerateUID()),
-		Destination: partitions,
-	}
-}
-
-func GenerateRequest(key, value []byte, partitions []types.Partition) types.Request {
-	return types.Request{
-		Key:         key,
 		Value:       value,
 		Extra:       nil,
 		Destination: partitions,

@@ -87,9 +87,6 @@ type HeaderExtract interface {
 // the final user do not have to handle information about
 // the protocol.
 type Request struct {
-	// The request key the value will be associated with.
-	Key []byte
-
 	// The concrete value that will be replicated.
 	Value []byte
 
@@ -109,19 +106,16 @@ type Response struct {
 	// The request was completed successfully.
 	Success bool
 
-	// After sending a message, the user will receive the
-	// message unique identifier to verify if the value
-	// is already committed on the state machine.
-	Identifier UID
+	// The response data for the client.
+	// This is a slice of DataHolder in case the requested
+	// operation is to Dump the log file.
+	// At this moment, the response will be the data available
+	// on the Log, when a Command Query is executed the whole
+	// sequence of commands will be returned.
+	Data []DataHolder
 
-	// Replicated data.
-	Data []byte
-
-	// Replicated extra information.
-	Extra []byte
-
-	// If an error happened, this will transfer the
-	// error back.
+	// If an error happened, this will transfer the error back
+	// to the client.
 	Failure error
 }
 
@@ -162,40 +156,42 @@ func (m *Message) Extract() ProtocolHeader {
 // the already defined sorting for the protocol.
 // First we verify the messages timestamps and if both are equal,
 // then sort the message using the UID.
-// For this method exists 3 results:
-//
-// m < m2 -> -1
-// m > m2 -> 1
-// m = m2 -> 0
-//
-// Even though exists the possibility for the value `0` be returned,
-// this should not happen, since all messages will have unique identifiers.
-func (m Message) Cmp(m2 Message) int {
+func (m Message) HasHigherPriority(m2 Message) bool {
 	if m.Timestamp < m2.Timestamp {
-		return -1
+		return true
 	}
 
 	if m.Timestamp > m2.Timestamp {
-		return 1
+		return false
 	}
 
-	keyA := string(m.Identifier)
-	keyB := string(m2.Identifier)
-	if keyA < keyB {
-		return -1
+	if m.Identifier < m2.Identifier {
+		return true
 	}
-
-	if keyA > keyB {
-		return 1
-	}
-	return 0
+	return false
 }
 
 // Verify if the two messages are different.
-// To be different we must verify only the Identifier,
-// Timestamp and State.
-// It can be the same message, but with a updated Timestamp
-// or State.
+// To be different we must verify the Identifier, Timestamp and State.
+// It can be a message with same Identifier, but with an Updated version,
+// thus having a Timestamp and State greater than the actual one.
+// Here too we are enforcing that we only forward on time.
 func (m Message) Diff(m2 Message) bool {
-	return m.Identifier != m2.Identifier || m.Timestamp != m2.Timestamp || m.State != m2.State
+	if m.Identifier == m2.Identifier {
+		return m2.Timestamp > m.Timestamp || m2.State > m.State
+	}
+	return true
+}
+
+// Verify if the given message is an updated version.
+// This is required so we can only go forward on time
+// and can handle any delayed message.
+func (m Message) Updated(m2 Message) bool {
+	if m.Identifier == m2.Identifier {
+		if m.Timestamp == m2.Timestamp {
+			return m2.State > m.State
+		}
+		return m2.Timestamp > m.Timestamp && m2.State > m.State
+	}
+	return false
 }

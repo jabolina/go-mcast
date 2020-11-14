@@ -1,6 +1,7 @@
 package mcast
 
 import (
+	"context"
 	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast/core"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
@@ -27,12 +28,14 @@ type Unity interface {
 	Write(request types.Request) <-chan types.Response
 
 	// Query a value from the unity.
-	Read(request types.Request) (types.Response, error)
+	Read() types.Response
 
 	// Shutdown the unity.
 	// This is NOT a graceful shutdown, everything that
 	// is going on will stop.
 	Shutdown()
+
+	WhoAmI() types.Partition
 }
 
 // Concrete implementation of the Unity interface.
@@ -49,11 +52,14 @@ type PeerUnity struct {
 
 	// Used to spawn and control go routines.
 	Invoker core.Invoker
+
+	Finish context.CancelFunc
 }
 
 func NewUnity(configuration *types.Configuration) (Unity, error) {
 	invk := core.InvokerInstance()
 	var peers []core.PartitionPeer
+	ctx, cancel := context.WithCancel(context.Background())
 	for i := 0; i < configuration.Replication; i++ {
 		pc := &types.PeerConfiguration{
 			Name:      fmt.Sprintf("%s-%d", configuration.Name, i),
@@ -61,9 +67,15 @@ func NewUnity(configuration *types.Configuration) (Unity, error) {
 			Version:   configuration.Version,
 			Conflict:  configuration.Conflict,
 			Storage:   configuration.Storage,
+			Ctx:       ctx,
+			Cancel:    cancel,
 		}
 		peer, err := core.NewPeer(pc, configuration.Logger)
 		if err != nil {
+			cancel()
+			for _, createdPrev := range peers {
+				createdPrev.Stop()
+			}
 			return nil, err
 		}
 
@@ -74,6 +86,7 @@ func NewUnity(configuration *types.Configuration) (Unity, error) {
 		Peers:         peers,
 		Last:          0,
 		Invoker:       invk,
+		Finish:        cancel,
 	}
 	return pu, nil
 }
@@ -89,7 +102,6 @@ func (p *PeerUnity) Write(request types.Request) <-chan types.Response {
 		Identifier: id,
 		Content: types.DataHolder{
 			Operation:  types.Command,
-			Key:        request.Key,
 			Content:    request.Value,
 			Extensions: request.Extra,
 		},
@@ -99,22 +111,28 @@ func (p *PeerUnity) Write(request types.Request) <-chan types.Response {
 		From:        p.Configuration.Name,
 	}
 	peer := p.resolveNextPeer()
-	p.Configuration.Logger.Infof("sending request %#v", request)
+	p.Configuration.Logger.Infof("sending message %#v from %s\n", message, p.Configuration.Name)
 	return peer.Command(message)
 }
 
 // Implements the Unity interface.
-func (p *PeerUnity) Read(request types.Request) (types.Response, error) {
+func (p *PeerUnity) Read() types.Response {
 	peer := p.resolveNextPeer()
-	return peer.FastRead(request)
+	return peer.FastRead()
 }
 
 // Implements the Unity interface.
 func (p *PeerUnity) Shutdown() {
+	p.Finish()
 	for _, peer := range p.Peers {
 		peer.Stop()
 	}
 	p.Invoker.Stop()
+}
+
+// Implements the Unity interface.
+func (p *PeerUnity) WhoAmI() types.Partition {
+	return p.Configuration.Name
 }
 
 // Returns the next peer to be used. This will

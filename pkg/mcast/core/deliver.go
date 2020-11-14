@@ -1,30 +1,26 @@
 package core
 
 import (
-	"context"
-	"fmt"
+	"errors"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
+	"time"
+)
+
+var (
+	ErrCommandUnknown = errors.New("unknown command applied into state machine")
 )
 
 // Interface to deliver messages.
 type Deliverable interface {
 	// Commit the given message on the state machine.
-	Commit(message types.Message) types.Response
+	Commit(message types.Message, isGenericDelivery bool) types.Response
 }
 
 // A struct that is able to deliver message from the protocol.
 // The messages will be committed on the peer state machine
 // and a notification will be generated,
 type Deliver struct {
-	// Parent context of the delivery.
-	// The parent who instantiate the delivery is the peer that
-	// relies inside a partition, so for each peer will exists a
-	// deliver instance.
-	// When the peer is shutdown, also will be shutdown the deliver.
-	ctx context.Context
-
-	// Conflict relationship to order the messages.
-	conflict types.ConflictRelationship
+	name string
 
 	// The peer state machine.
 	sm types.StateMachine
@@ -34,54 +30,66 @@ type Deliver struct {
 }
 
 // Creates a new instance of the Deliverable interface.
-func NewDeliver(ctx context.Context, log types.Logger, conflict types.ConflictRelationship, storage types.Storage) (Deliverable, error) {
-	sm := types.NewStateMachine(storage)
+func NewDeliver(name string, log types.Logger, logStructure types.Log) (Deliverable, error) {
+	sm := types.NewStateMachine(logStructure)
 	if err := sm.Restore(); err != nil {
 		return nil, err
 	}
 	d := &Deliver{
-		ctx:      ctx,
-		conflict: conflict,
-		sm:       sm,
-		log:      log,
+		name: name,
+		sm:   sm,
+		log:  log,
 	}
 	return d, nil
 }
 
-// Commit the message on the peer state machine.
-// After the commit a notification is sent through the commit channel.
-func (d Deliver) Commit(m types.Message) types.Response {
+func (d Deliver) Commit(m types.Message, isGenericDelivery bool) types.Response {
+	d.log.Debugf("%s commit %s request %d %#v", d.name, m.Identifier, time.Now().UnixNano(), m)
+	err := d.sm.Commit(m, isGenericDelivery)
+
 	res := types.Response{
-		Success:    false,
-		Identifier: m.Identifier,
-		Data:       nil,
-		Extra:      nil,
-		Failure:    nil,
+		Success: false,
+		Data:    nil,
+		Failure: nil,
 	}
-	d.log.Debugf("commit request %#v", m)
-	entry := &types.Entry{
-		Operation:      m.Content.Operation,
-		Identifier:     m.Identifier,
-		Key:            m.Content.Key,
-		FinalTimestamp: m.Timestamp,
-		Data:           m.Content.Content,
-		Extensions:     m.Content.Extensions,
-	}
-	commit, err := d.sm.Commit(entry)
+
 	if err != nil {
 		d.log.Errorf("failed to commit %#v. %v", m, err)
 		res.Success = false
 		res.Failure = err
-	} else {
-		switch c := commit.(type) {
-		case *types.Entry:
-			res.Success = true
-			res.Data = c.Data
-			res.Extra = c.Extensions
-		default:
-			res.Success = false
-			res.Failure = fmt.Errorf("commit unknown response. %#v", c)
-		}
+		return res
 	}
+
+	res.Success = true
+	res.Failure = nil
+	switch m.Content.Operation {
+	case types.Command:
+		holder := types.DataHolder{
+			Meta: types.Meta{
+				Identifier: m.Identifier,
+				Timestamp:  m.Timestamp,
+			},
+			Operation:  types.Command,
+			Content:    m.Content.Content,
+			Extensions: m.Content.Extensions,
+		}
+		res.Data = []types.DataHolder{holder}
+	case types.Query:
+		messages, err := d.sm.History()
+		if err != nil {
+			res.Success = false
+			res.Data = nil
+			res.Failure = err
+		} else {
+			for _, message := range messages {
+				res.Data = append(res.Data, message.Content)
+			}
+		}
+	default:
+		res.Success = false
+		res.Data = nil
+		res.Failure = ErrCommandUnknown
+	}
+
 	return res
 }

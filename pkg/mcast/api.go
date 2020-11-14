@@ -25,7 +25,7 @@ func DefaultConfiguration(name types.Partition) *types.Configuration {
 		Replication: 3,
 		Version:     types.LatestProtocolVersion,
 		Conflict:    &definition.AlwaysConflict{},
-		Storage:     definition.NewInMemoryStorage(),
+		Storage:     definition.NewDefaultStorage(),
 		Logger:      definition.NewDefaultLogger(),
 	}
 }
@@ -44,7 +44,6 @@ func NewWriteRequest(key, value, extra []byte, destination []string) *types.Requ
 		partitions = append(partitions, types.Partition(s))
 	}
 	return &types.Request{
-		Key:         key,
 		Value:       value,
 		Extra:       extra,
 		Destination: partitions,
@@ -59,7 +58,6 @@ func NewReadRequest(key []byte, destination []string) *types.Request {
 		partitions = append(partitions, types.Partition(s))
 	}
 	return &types.Request{
-		Key:         key,
 		Destination: partitions,
 	}
 }
