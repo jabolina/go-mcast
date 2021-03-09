@@ -88,7 +88,7 @@ type RQueue struct {
 }
 
 // Create a new queue data structure.
-func NewQueue(ctx context.Context, owner string, logger types.Logger, conflict types.ConflictRelationship, deliver chan<- deliverRequest) Queue {
+func NewQueue(ctx context.Context, conflict types.ConflictRelationship, deliver chan<- deliverRequest) Queue {
 	headChannel := make(chan types.Message)
 	r := &RQueue{
 		ctx:        ctx,
@@ -97,7 +97,7 @@ func NewQueue(ctx context.Context, owner string, logger types.Logger, conflict t
 		applied:    NewTtlCache(ctx),
 		headChange: headChannel,
 		deliver:    deliver,
-		priorityQueue: NewPriorityQueue(logger, owner, headChannel, func(m types.Message) bool {
+		priorityQueue: NewPriorityQueue(headChannel, func(m types.Message) bool {
 			return m.State == types.S3
 		}),
 	}

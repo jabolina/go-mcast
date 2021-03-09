@@ -54,16 +54,10 @@ type PriorityQueue struct {
 
 	// A function to verify if the given element can be notified.
 	validation func(message types.Message) bool
-
-	logger types.Logger
-
-	owner string
 }
 
-func NewPriorityQueue(logger types.Logger, owner string, ch chan<- types.Message, validation func(message types.Message) bool) types.ReceivedQueue {
+func NewPriorityQueue(ch chan<- types.Message, validation func(message types.Message) bool) types.ReceivedQueue {
 	return &PriorityQueue{
-		logger: logger,
-		owner: owner,
 		mutex:        &sync.Mutex{},
 		values:       priorityHeap{},
 		notification: ch,

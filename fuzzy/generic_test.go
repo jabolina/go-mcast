@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-type ConflictWhenNeeded struct {}
+type ConflictWhenNeeded struct{}
 
 func (c *ConflictWhenNeeded) Conflict(message types.Message, _ []types.Message) bool {
 	return message.Content.Extensions == nil

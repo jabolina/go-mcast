@@ -521,7 +521,7 @@ func TestQueue_ShouldNotifyCorrectlyWhenRemovedArbitraryItems(t *testing.T) {
 	go func() {
 		defer group.Done()
 		select {
-		case v :=<-ch:
+		case v := <-ch:
 			t.Logf("notification for %s", v.Identifier)
 			atomic.AddInt32(&notificationCounter, 0x1)
 		case <-ctx.Done():

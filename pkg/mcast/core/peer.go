@@ -159,7 +159,7 @@ func NewPeer(configuration *types.PeerConfiguration, logger types.Logger) (Parti
 		context:        configuration.Ctx,
 		finish:         configuration.Cancel,
 	}
-	p.rqueue = NewQueue(configuration.Ctx, configuration.Name, logger, configuration.Conflict, p.delivering)
+	p.rqueue = NewQueue(configuration.Ctx, configuration.Conflict, p.delivering)
 	p.invoker.Spawn(p.poll)
 	p.invoker.Spawn(p.doDeliver)
 	return p, nil

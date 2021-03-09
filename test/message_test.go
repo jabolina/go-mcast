@@ -36,7 +36,7 @@ func Test_MessagesShouldBeDifferent(t *testing.T) {
 
 	firstClone := first
 	firstClone.Timestamp = uint64(2)
-	if !first.Diff(firstClone) {
+	if first.Diff(firstClone) {
 		t.Fatalf("messages should be different")
 	}
 
