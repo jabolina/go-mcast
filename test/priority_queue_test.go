@@ -1,12 +1,14 @@
 package test
 
 import (
+	"context"
 	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast/core"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"math"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -449,5 +451,102 @@ func TestQueue_NotificationWillClearQueue(t *testing.T) {
 	}
 
 	done <- true
+	group.Wait()
+}
+
+func TestQueue_ShouldKeepSmallestOnHead(t *testing.T) {
+	ch := make(chan types.Message)
+	validation := func(message types.Message) bool {
+		return message.State == types.S3
+	}
+	q := core.NewPriorityQueue(ch, validation)
+	theOriginal := types.Message{
+		Timestamp:  0,
+		Identifier: types.UID(helper.GenerateUID()),
+	}
+
+	group := sync.WaitGroup{}
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		select {
+		case v := <-ch:
+			if v.Identifier != theOriginal.Identifier {
+				t.Errorf("Expected %s, received %s", theOriginal.Identifier, v.Identifier)
+			}
+		case <-time.After(time.Second):
+			t.Errorf("no notification received")
+		}
+	}()
+
+	q.Push(theOriginal)
+
+	for i := 1; i < 20; i++ {
+		anyMessage := types.Message{
+			Timestamp:  uint64(i),
+			Identifier: types.UID(helper.GenerateUID()),
+		}
+		q.Push(anyMessage)
+	}
+
+	theOriginal.State = types.S3
+	q.Push(theOriginal)
+
+	group.Wait()
+}
+
+func TestQueue_ShouldNotifyCorrectlyWhenRemovedArbitraryItems(t *testing.T) {
+	ch := make(chan types.Message)
+	validation := func(message types.Message) bool {
+		return message.State == types.S3
+	}
+	ctx, cancel := context.WithCancel(context.TODO())
+	notificationCounter := int32(0)
+	q := core.NewPriorityQueue(ch, validation)
+	willBeRemoved := types.Message{
+		Timestamp:  0,
+		Identifier: "2-removed-uid",
+	}
+	theOriginal := types.Message{
+		Timestamp:  0,
+		Identifier: "1-the-one-uid",
+	}
+	shouldNotNotify := types.Message{
+		Timestamp:  1,
+		Identifier: "nope-uid",
+	}
+
+	group := sync.WaitGroup{}
+	group.Add(1)
+	go func() {
+		defer group.Done()
+		select {
+		case v :=<-ch:
+			t.Logf("notification for %s", v.Identifier)
+			atomic.AddInt32(&notificationCounter, 0x1)
+		case <-ctx.Done():
+			return
+		}
+	}()
+
+	q.Push(willBeRemoved)
+	q.Push(theOriginal)
+	q.Push(shouldNotNotify)
+
+	shouldNotNotify.State = types.S3
+	q.Push(shouldNotNotify)
+
+	q.Remove(willBeRemoved.Identifier)
+
+	theOriginal.State = types.S3
+	q.Push(theOriginal)
+
+	time.Sleep(150 * time.Millisecond)
+	notifications := atomic.LoadInt32(&notificationCounter)
+	if notifications != 0x1 {
+		t.Errorf("expected %d notifications, found %d", 1, notifications)
+	}
+
+	cancel()
 	group.Wait()
 }

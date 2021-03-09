@@ -54,10 +54,16 @@ type PriorityQueue struct {
 
 	// A function to verify if the given element can be notified.
 	validation func(message types.Message) bool
+
+	logger types.Logger
+
+	owner string
 }
 
-func NewPriorityQueue(ch chan<- types.Message, validation func(message types.Message) bool) types.ReceivedQueue {
+func NewPriorityQueue(logger types.Logger, owner string, ch chan<- types.Message, validation func(message types.Message) bool) types.ReceivedQueue {
 	return &PriorityQueue{
+		logger: logger,
+		owner: owner,
 		mutex:        &sync.Mutex{},
 		values:       priorityHeap{},
 		notification: ch,
@@ -93,7 +99,6 @@ func (p *PriorityQueue) Push(message types.Message) {
 		// We must verify it with the value when the function returns.
 		headStart := p.values[0]
 		defer func() {
-			heap.Init(&p.values)
 			headCurrent := p.values[0]
 			if headStart.Diff(headCurrent) && p.validation(headCurrent) {
 				p.sendNotification()
@@ -129,7 +134,6 @@ func (p *PriorityQueue) Pop() interface{} {
 
 	defer func() {
 		if p.values.Len() > 0 {
-			heap.Init(&p.values)
 			// The Pop method will remove the head element, so
 			// if we still have elements the head definitely changed,
 			// we only need to verify if the value can notify.
@@ -143,13 +147,13 @@ func (p *PriorityQueue) Pop() interface{} {
 	return heap.Pop(&p.values)
 }
 
-func (p *PriorityQueue) Remove(uid types.UID) {
+func (p *PriorityQueue) Remove(uid types.UID) interface{} {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	index := p.getIndexByUid(uid)
 	if index < 0 {
-		return
+		return nil
 	}
 
 	// We are not sure if the removed element is the
@@ -165,7 +169,7 @@ func (p *PriorityQueue) Remove(uid types.UID) {
 		}
 	}()
 
-	heap.Remove(&p.values, index)
+	return heap.Remove(&p.values, index)
 }
 
 func (p *PriorityQueue) Values() []types.Message {

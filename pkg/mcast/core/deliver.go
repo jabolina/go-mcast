@@ -44,7 +44,7 @@ func NewDeliver(name string, log types.Logger, logStructure types.Log) (Delivera
 }
 
 func (d Deliver) Commit(m types.Message, isGenericDelivery bool) types.Response {
-	d.log.Debugf("%s commit %s request %d %#v", d.name, m.Identifier, time.Now().UnixNano(), m)
+	d.log.Debugf("%s commit %s request %d - %v - %#v", d.name, m.Identifier, time.Now().UnixNano(), isGenericDelivery, m)
 	err := d.sm.Commit(m, isGenericDelivery)
 
 	res := types.Response{

@@ -8,7 +8,9 @@ import (
 
 type Cache interface {
 	// Add a new value to the cache.
-	Set(id string)
+	// Returns true if the value did not
+	// exists previously and false otherwise.
+	Set(id string) bool
 
 	// Verify if the cache contains information for
 	// the given key.
@@ -66,12 +68,14 @@ func (t *TtlCache) cleanExpired() {
 }
 
 // Try to add a new value to the cache.
-func (t *TtlCache) Set(id string) {
+func (t *TtlCache) Set(id string) bool {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
-	if !t.lockedContains(id) {
+	contains := t.lockedContains(id)
+	if !contains {
 		t.data[id] = time.Now()
 	}
+	return !contains
 }
 
 // Unsafely verify if a value exists on the cache.

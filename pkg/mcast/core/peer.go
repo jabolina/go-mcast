@@ -159,7 +159,7 @@ func NewPeer(configuration *types.PeerConfiguration, logger types.Logger) (Parti
 		context:        configuration.Ctx,
 		finish:         configuration.Cancel,
 	}
-	p.rqueue = NewQueue(configuration.Ctx, configuration.Conflict, p.delivering)
+	p.rqueue = NewQueue(configuration.Ctx, configuration.Name, logger, configuration.Conflict, p.delivering)
 	p.invoker.Spawn(p.poll)
 	p.invoker.Spawn(p.doDeliver)
 	return p, nil
@@ -279,7 +279,9 @@ func (p *Peer) process(message types.Message) {
 	enqueue := true
 	defer func() {
 		if enqueue && p.rqueue.Enqueue(message) {
-			p.reprocessMessage(message)
+			p.invoker.Spawn(func() {
+				p.reprocessMessage(message)
+			})
 		}
 	}()
 
@@ -408,9 +410,7 @@ func (p *Peer) alreadyExchangedTimestamps(message types.Message) bool {
 // protocols see the same object state.
 func (p *Peer) reprocessMessage(message types.Message) {
 	if message.State == types.S2 {
-		p.invoker.Spawn(func() {
-			p.publishToReprocess(message)
-		})
+		p.publishToReprocess(message)
 	}
 
 	if message.State == types.S3 {
@@ -440,12 +440,20 @@ func (p *Peer) publishToReprocess(message types.Message) {
 // local peer state machine.
 func (p *Peer) doDeliver() {
 	for req := range p.delivering {
-		res := p.deliver.Commit(req.message, req.generic)
+		m, isGenericDeliver := req.message, req.generic
+		res := p.deliver.Commit(m, isGenericDeliver)
+
 		p.invoker.Spawn(func() {
-			m, isGenericDeliver := req.message, req.generic
 			p.received.Remove(m.Identifier)
+			if isGenericDeliver {
+				p.rqueue.Dequeue(m)
+			} else {
+				p.rqueue.Pop()
+			}
+
 			p.mutex.Lock()
 			defer p.mutex.Unlock()
+
 			obs, ok := p.observers[m.Identifier]
 			if ok {
 				select {
@@ -458,10 +466,6 @@ func (p *Peer) doDeliver() {
 				}
 				close(obs.notify)
 				delete(p.observers, obs.uid)
-			}
-
-			if !isGenericDeliver {
-				p.rqueue.Pop()
 			}
 		})
 	}

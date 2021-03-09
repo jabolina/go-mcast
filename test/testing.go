@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast"
 	"github.com/jabolina/go-mcast/pkg/mcast/core"
+	"github.com/jabolina/go-mcast/pkg/mcast/definition"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"github.com/prometheus/common/log"
@@ -89,10 +90,11 @@ func NewTestingUnity(configuration *types.Configuration) (mcast.Unity, error) {
 	return pu, nil
 }
 
-func CreateUnity(name types.Partition, t *testing.T) mcast.Unity {
+func CreateUnityConflict(name types.Partition, conflict types.ConflictRelationship, t *testing.T) mcast.Unity {
 	conf := mcast.DefaultConfiguration(name)
 	conf.Logger.ToggleDebug(false)
 	conf.Logger.AddContext(string(name))
+	conf.Conflict = conflict
 	unity, err := NewTestingUnity(conf)
 	if err != nil {
 		t.Fatalf("failed creating unity %s. %v", name, err)
@@ -100,7 +102,11 @@ func CreateUnity(name types.Partition, t *testing.T) mcast.Unity {
 	return unity
 }
 
-func CreateCluster(clusterSize int, prefix string, t *testing.T) *UnityCluster {
+func CreateUnity(name types.Partition, t *testing.T) mcast.Unity {
+	return CreateUnityConflict(name, definition.AlwaysConflict{}, t)
+}
+
+func CreateClusterConflict(clusterSize int, prefix string, conflict types.ConflictRelationship, t *testing.T) *UnityCluster {
 	cluster := &UnityCluster{
 		T:     t,
 		group: &sync.WaitGroup{},
@@ -111,10 +117,14 @@ func CreateCluster(clusterSize int, prefix string, t *testing.T) *UnityCluster {
 	for i := 0; i < clusterSize; i++ {
 		name := types.Partition(fmt.Sprintf("%s-%s", prefix, helper.GenerateUID()))
 		cluster.Names[i] = name
-		unities = append(unities, CreateUnity(name, t))
+		unities = append(unities, CreateUnityConflict(name, conflict, t))
 	}
 	cluster.Unities = unities
 	return cluster
+}
+
+func CreateCluster(clusterSize int, prefix string, t *testing.T) *UnityCluster {
+	return CreateClusterConflict(clusterSize, prefix, definition.AlwaysConflict{}, t)
 }
 
 func (c *UnityCluster) Next() mcast.Unity {
@@ -140,24 +150,40 @@ func (c UnityCluster) DoesClusterMatchTo(expected []types.DataHolder) {
 			continue
 		}
 		outputValues(res.Data, string(unity.WhoAmI()))
-		if len(res.Data) != len(expected) {
-			c.T.Errorf("C-Hist differ on size, expected %d found %d", len(expected), len(res.Data))
-		}
 
-		for index, holder := range res.Data {
+		toVerify := onlyOrdered(res.Data)
+		for index, holder := range toVerify {
 			expectedData := expected[index]
 			if !bytes.Equal(expectedData.Content, holder.Content) {
 				c.T.Errorf("Content differ cmd %d for unity %s, expected %#v, found %#v", index, unity.WhoAmI(), expectedData, holder)
 				continue
 			}
 		}
+
+		if len(res.Data) == len(toVerify) {
+			if len(res.Data) != len(expected) {
+				c.T.Errorf("C-Hist differ on size, expected %d found %d", len(expected), len(res.Data))
+			}
+		} else {
+			c.T.Logf("had generic message @ %s", unity.WhoAmI())
+		}
 	}
+}
+
+func onlyOrdered(expected []types.DataHolder) []types.DataHolder {
+	var notGeneric []types.DataHolder
+	for _, holder := range expected {
+		if holder.Extensions == nil {
+			notGeneric = append(notGeneric, holder)
+		}
+	}
+	return notGeneric
 }
 
 func outputValues(values []types.DataHolder, owner string) {
 	log.Infof("--------------------%s-------------------------", owner)
 	for _, value := range values {
-		log.Infof("%s - %d\n", value.Meta.Identifier, value.Meta.Timestamp)
+		log.Infof("%s - %d - %v\n", value.Meta.Identifier, value.Meta.Timestamp, value.Extensions != nil)
 	}
 }
 
@@ -169,7 +195,7 @@ func (c UnityCluster) DoesAllClusterMatch() {
 		c.T.Errorf("something wrong readin. %v", res.Failure)
 		return
 	}
-	c.DoesClusterMatchTo(res.Data)
+	c.DoesClusterMatchTo(onlyOrdered(res.Data))
 }
 
 func (c *UnityCluster) PoweroffUnity(unity mcast.Unity) {

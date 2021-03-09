@@ -178,7 +178,7 @@ func (m Message) HasHigherPriority(m2 Message) bool {
 // Here too we are enforcing that we only forward on time.
 func (m Message) Diff(m2 Message) bool {
 	if m.Identifier == m2.Identifier {
-		return m2.Timestamp > m.Timestamp || m2.State > m.State
+		return m.Updated(m2)
 	}
 	return true
 }

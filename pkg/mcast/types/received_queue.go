@@ -24,7 +24,7 @@ type ReceivedQueue interface {
 
 	// Remove the message that contains the given identifier.
 	// After the item is removed the heap sorted again.
-	Remove(uid UID)
+	Remove(uid UID) interface{}
 
 	// Return all the elements present on the queue at the time
 	// of the read. After the elements are returned the actual

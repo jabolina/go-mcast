@@ -88,7 +88,7 @@ type RQueue struct {
 }
 
 // Create a new queue data structure.
-func NewQueue(ctx context.Context, conflict types.ConflictRelationship, deliver chan<- deliverRequest) Queue {
+func NewQueue(ctx context.Context, owner string, logger types.Logger, conflict types.ConflictRelationship, deliver chan<- deliverRequest) Queue {
 	headChannel := make(chan types.Message)
 	r := &RQueue{
 		ctx:        ctx,
@@ -97,7 +97,7 @@ func NewQueue(ctx context.Context, conflict types.ConflictRelationship, deliver 
 		applied:    NewTtlCache(ctx),
 		headChange: headChannel,
 		deliver:    deliver,
-		priorityQueue: NewPriorityQueue(headChannel, func(m types.Message) bool {
+		priorityQueue: NewPriorityQueue(logger, owner, headChannel, func(m types.Message) bool {
 			return m.State == types.S3
 		}),
 	}
@@ -115,14 +115,15 @@ func (r *RQueue) IsEligible(i interface{}) bool {
 }
 
 func (r *RQueue) verifyAndDeliverHead(message types.Message) {
-	if r.IsEligible(message) {
-		r.applied.Set(string(message.Identifier))
+	if r.applied.Set(string(message.Identifier)) {
 		r.deliver <- deliverRequest{
 			message: message,
 			generic: false,
 		}
 	} else {
-		r.Dequeue(message)
+		InvokerInstance().Spawn(func() {
+			r.Dequeue(message)
+		})
 	}
 }
 
@@ -176,13 +177,7 @@ func (r *RQueue) Enqueue(i interface{}) bool {
 // Implements the Queue interface.
 func (r *RQueue) Dequeue(i interface{}) interface{} {
 	m := i.(types.Message)
-	value, ok := r.priorityQueue.GetByKey(m.Identifier)
-	if ok {
-		r.applied.Set(string(m.Identifier))
-		r.priorityQueue.Remove(m.Identifier)
-		return value
-	}
-	return nil
+	return r.priorityQueue.Remove(m.Identifier)
 }
 
 // Implements the Queue interface.
@@ -221,8 +216,7 @@ func (r *RQueue) GenericDeliver(i interface{}) {
 
 	// If the message do not conflict with any other message
 	// then it can be delivered directly.
-	if !r.conflict.Conflict(message, messages) {
-		r.Dequeue(message)
+	if !r.conflict.Conflict(message, messages) && r.applied.Set(string(message.Identifier)) {
 		r.deliver <- deliverRequest{
 			message: message,
 			generic: true,
