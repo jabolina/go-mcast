@@ -392,7 +392,8 @@ func (p *Peer) send(message types.Message, t types.MessageType, emission emissio
 	}
 
 	for _, partition := range destination {
-		for err := p.transport.Unicast(message, partition); err != nil; {
+		tries := 0
+		for err := p.transport.Unicast(message, partition); err != nil && tries < 5; tries++ {
 			p.logger.Errorf("error unicast %s to partition %s. %v", message.Identifier, partition, err)
 		}
 	}
