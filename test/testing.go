@@ -141,12 +141,12 @@ func (c *UnityCluster) Next() mcast.Unity {
 	return c.Unities[c.index]
 }
 
-func (c UnityCluster) DoesClusterMatchTo(expected []types.DataHolder) {
-	for _, unity := range c.Unities {
+func DoWeMatch(expected []types.DataHolder, unities []mcast.Unity, t *testing.T) {
+	for _, unity := range unities {
 		res := unity.Read()
 
 		if !res.Success {
-			c.T.Errorf("reading partition 1 failed. %v", res.Failure)
+			t.Errorf("reading partition failed. %v", res.Failure)
 			continue
 		}
 		outputValues(res.Data, string(unity.WhoAmI()))
@@ -155,19 +155,23 @@ func (c UnityCluster) DoesClusterMatchTo(expected []types.DataHolder) {
 		for index, holder := range toVerify {
 			expectedData := expected[index]
 			if !bytes.Equal(expectedData.Content, holder.Content) {
-				c.T.Errorf("Content differ cmd %d for unity %s, expected %#v, found %#v", index, unity.WhoAmI(), expectedData, holder)
+				t.Errorf("Content differ cmd %d for unity %s, expected %#v, found %#v", index, unity.WhoAmI(), expectedData, holder)
 				continue
 			}
 		}
 
 		if len(res.Data) == len(toVerify) {
 			if len(res.Data) != len(expected) {
-				c.T.Errorf("C-Hist differ on size, expected %d found %d", len(expected), len(res.Data))
+				t.Errorf("C-Hist differ on size, expected %d found %d", len(expected), len(res.Data))
 			}
 		} else {
-			c.T.Logf("had generic message @ %s", unity.WhoAmI())
+			t.Logf("had generic message @ %s", unity.WhoAmI())
 		}
 	}
+}
+
+func (c UnityCluster) DoesClusterMatchTo(expected []types.DataHolder) {
+	DoWeMatch(expected, c.Unities, c.T)
 }
 
 func onlyOrdered(expected []types.DataHolder) []types.DataHolder {

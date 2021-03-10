@@ -15,7 +15,7 @@ import (
 // This is only to verify if after a sequence of commands
 // all partitions will end at the same state, since in this
 // test no failure is injected over the transport.
-func Test_SequentialCommands(t *testing.T) {
+func Test_BroadcastSequentialCommands(t *testing.T) {
 	cluster := test.CreateCluster(3, "alphabet", t)
 	defer func() {
 		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
@@ -45,7 +45,7 @@ func Test_SequentialCommands(t *testing.T) {
 	cluster.DoesAllClusterMatch()
 }
 
-func Test_ConcurrentCommands(t *testing.T) {
+func Test_BroadcastConcurrentCommands(t *testing.T) {
 	cluster := test.CreateCluster(3, "concurrent", t)
 	defer func() {
 		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
