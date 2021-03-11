@@ -2,13 +2,15 @@ package core
 
 import (
 	"context"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
 type Cache interface {
 	// Add a new value to the cache.
-	Set(id string)
+	// Returns true if the value did not
+	// exists previously and false otherwise.
+	Set(id string) bool
 
 	// Verify if the cache contains information for
 	// the given key.
@@ -17,8 +19,8 @@ type Cache interface {
 
 // A cache structure where the keys have a TTL.
 type TtlCache struct {
-	// Lock for non-blocking actions.
-	lock int32
+	// Mutex for non-blocking actions.
+	mutex *sync.Mutex
 
 	// Holds the information.
 	data map[string]time.Time
@@ -29,9 +31,9 @@ type TtlCache struct {
 
 func NewTtlCache(ctx context.Context) Cache {
 	c := &TtlCache{
-		lock: 0,
-		data: make(map[string]time.Time),
-		ctx:  ctx,
+		mutex: &sync.Mutex{},
+		data:  make(map[string]time.Time),
+		ctx:   ctx,
 	}
 	InvokerInstance().Spawn(c.poll)
 	return c
@@ -55,31 +57,36 @@ func (t *TtlCache) poll() {
 // See that is not crucial that remove the elements when the
 // method is called, they can be removed a minute later.
 func (t *TtlCache) cleanExpired() {
-	if atomic.CompareAndSwapInt32(&t.lock, 0x0, 0x1) {
-		now := time.Now()
-		for key, at := range t.data {
-			if now.Sub(at) >= 10*time.Minute {
-				delete(t.data, key)
-			}
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	now := time.Now()
+	for key, at := range t.data {
+		if now.Sub(at) >= 10*time.Minute {
+			delete(t.data, key)
 		}
-		t.lock = 0x0
 	}
 }
 
-// Try to add a new value to the cache. What will happen if the
-// atomic value is not 0x0?
-func (t *TtlCache) Set(id string) {
-	if atomic.CompareAndSwapInt32(&t.lock, 0x0, 0x1) {
-		if !t.Contains(id) {
-			t.data[id] = time.Now()
-			t.lock = 0x0
-		}
+// Try to add a new value to the cache.
+func (t *TtlCache) Set(id string) bool {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	contains := t.lockedContains(id)
+	if !contains {
+		t.data[id] = time.Now()
 	}
+	return !contains
 }
 
 // Unsafely verify if a value exists on the cache.
 // This can result in a data race, depending on who called.
 func (t *TtlCache) Contains(id string) bool {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	return t.lockedContains(id)
+}
+
+func (t *TtlCache) lockedContains(id string) bool {
 	_, ok := t.data[id]
 	return ok
 }

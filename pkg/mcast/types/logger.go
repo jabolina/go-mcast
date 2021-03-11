@@ -28,4 +28,6 @@ type Logger interface {
 
 	// Toggle debug on/off
 	ToggleDebug(value bool) bool
+
+	AddContext(context string)
 }

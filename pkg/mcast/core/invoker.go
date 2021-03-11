@@ -73,7 +73,7 @@ func (c *SingletonInvoker) Spawn(f func()) {
 }
 
 // Blocks while waiting for go routines to stop.
-// This will set the working mode to off, so after
+// This will priorityQueue the working mode to off, so after
 // this is called any spawned go routine will panic.
 func (c *SingletonInvoker) Stop() {
 	c.mutex.Lock()

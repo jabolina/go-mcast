@@ -46,6 +46,8 @@ type ReliableTransport struct {
 
 	// The finish function to closing the transport.
 	finish context.CancelFunc
+
+	partition string
 }
 
 // Create a new instance of the transport interface.
@@ -57,42 +59,32 @@ func NewTransport(peer *types.PeerConfiguration, log types.Logger) (Transport, e
 	if err != nil {
 		return nil, err
 	}
-	ctx, done := context.WithCancel(context.Background())
+	ctx, done := context.WithCancel(peer.Ctx)
 	t := &ReliableTransport{
-		log:      log,
-		relt:     r,
-		producer: make(chan types.Message),
-		context:  ctx,
-		finish:   done,
+		log:       log,
+		relt:      r,
+		producer:  make(chan types.Message),
+		partition: peer.Name,
+		context:   ctx,
+		finish:    done,
 	}
-	InvokerInstance().Spawn(t.poll)
-	return t, nil
+	return t.waitTransportReady()
 }
 
-// ReliableTransport implements Transport interface.
-func (r *ReliableTransport) Broadcast(message types.Message) error {
-	data, err := json.Marshal(message)
+func (r *ReliableTransport) waitTransportReady() (Transport, error) {
+	wait := make(chan error)
+	InvokerInstance().Spawn(func() {
+		r.poll(wait)
+	})
+	err := <-wait
 	if err != nil {
-		log.Errorf("failed marshalling message %#v. %v", message, err)
-		return err
+		r.finish()
+		return nil, err
 	}
-
-	r.log.Debugf("broadcasting message %#v", message)
-	for _, partition := range message.Destination {
-		m := relt.Send{
-			Address: relt.GroupAddress(partition),
-			Data:    data,
-		}
-		if err = r.relt.Broadcast(m); err != nil {
-			r.log.Errorf("failed sending %#v. %v", m, err)
-			return err
-		}
-	}
-	return nil
+	return r, nil
 }
 
-// ReliableTransport implements Transport interface.
-func (r *ReliableTransport) Unicast(message types.Message, partition types.Partition) error {
+func (r *ReliableTransport) apply(message types.Message, partition types.Partition) error {
 	data, err := json.Marshal(message)
 	if err != nil {
 		log.Errorf("failed marshalling unicast message %#v. %v", message, err)
@@ -102,7 +94,23 @@ func (r *ReliableTransport) Unicast(message types.Message, partition types.Parti
 		Address: relt.GroupAddress(partition),
 		Data:    data,
 	}
-	return r.relt.Broadcast(m)
+	return r.relt.Broadcast(r.context, m)
+}
+
+// ReliableTransport implements Transport interface.
+func (r *ReliableTransport) Broadcast(message types.Message) error {
+	for _, partition := range message.Destination {
+		if err := r.apply(message, partition); err != nil {
+			r.log.Errorf("failed sending %#v. %v", message, err)
+			return err
+		}
+	}
+	return nil
+}
+
+// ReliableTransport implements Transport interface.
+func (r *ReliableTransport) Unicast(message types.Message, partition types.Partition) error {
+	return r.apply(message, partition)
 }
 
 // ReliableTransport implements Transport interface.
@@ -112,8 +120,10 @@ func (r *ReliableTransport) Listen() <-chan types.Message {
 
 // ReliableTransport implements Transport interface.
 func (r *ReliableTransport) Close() {
-	r.relt.Close()
 	r.finish()
+	if err := r.relt.Close(); err != nil {
+		r.log.Errorf("failed stopping transport. %#v", err)
+	}
 }
 
 // This method will keep polling until
@@ -121,16 +131,18 @@ func (r *ReliableTransport) Close() {
 // The messages that arrives through the underlying
 // transport channel will be sent to the consume
 // method to be parsed and publish to the listeners.
-func (r ReliableTransport) poll() {
+func (r ReliableTransport) poll(ready chan<- error) {
+	listener, err := r.relt.Consume()
+	ready <- err
 	for {
 		select {
 		case <-r.context.Done():
 			return
-		case recv, ok := <-r.relt.Consume():
+		case recv, ok := <-listener:
 			if !ok {
 				return
 			}
-			r.consume(recv)
+			r.consume(recv.Data, recv.Error)
 		}
 	}
 }
@@ -138,36 +150,28 @@ func (r ReliableTransport) poll() {
 // Consume will receive a message from the transport
 // and will parse into a valid object to be consumed
 // by the channel listener.
-func (r *ReliableTransport) consume(recv relt.Recv) {
-	defer func() {
-		if err := recover(); err != nil {
-			select {
-			case <-r.context.Done():
-				close(r.producer)
-			default:
-				r.consume(recv)
-			}
-		}
-	}()
-
-	if recv.Error != nil {
-		r.log.Errorf("failed consuming message. %v", recv.Error)
+func (r *ReliableTransport) consume(data []byte, err error) {
+	if err != nil {
+		r.log.Errorf("failed consuming message at %s. %v", r.partition, err)
 		return
 	}
 
-	if recv.Data == nil {
+	if data == nil {
+		r.log.Warnf("received empty message at %s", r.partition)
 		return
 	}
 
 	var m types.Message
-	if err := json.Unmarshal(recv.Data, &m); err != nil {
-		r.log.Errorf("failed unmarshalling message %#v. %v", recv, err)
+	if err := json.Unmarshal(data, &m); err != nil {
+		r.log.Errorf("failed unmarshalling message %#v. %v", data, err)
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(r.context, time.Second)
+	defer cancel()
 	select {
-	case <-time.After(100 * time.Millisecond):
-		r.log.Warnf("failed consuming %#v", m)
+	case <-ctx.Done():
+		r.log.Warnf("%s took to long consuming. %#v", r.partition, m)
 		return
 	case r.producer <- m:
 		return

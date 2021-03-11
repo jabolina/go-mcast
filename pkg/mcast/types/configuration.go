@@ -1,5 +1,7 @@
 package types
 
+import "context"
+
 // Holds the peer configuration.
 type PeerConfiguration struct {
 	// The peer name.
@@ -18,6 +20,12 @@ type PeerConfiguration struct {
 	// Stable storage to commit the values of the state
 	// machine.
 	Storage Storage
+
+	// Application context for handling goroutines.
+	Ctx context.Context
+
+	// Application function to cancel the context.
+	Cancel context.CancelFunc
 }
 
 // The configuration for using the atomic multicast.

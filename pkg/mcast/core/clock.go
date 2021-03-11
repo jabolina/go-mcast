@@ -1,7 +1,7 @@
 package core
 
 import (
-	"sync"
+	"sync/atomic"
 )
 
 // A logical clock to provide the timestamp for a single peer.
@@ -21,37 +21,27 @@ type LogicalClock interface {
 // Logical clock for a single process, implements the
 // LogicalClock interface.
 type ProcessClock struct {
-	// Sync access to the clock value.
-	mutex *sync.Mutex
-
 	// Logical operation index.
 	index uint64
 }
 
 // Implements the LogicalClock interface.
 func (p *ProcessClock) Tick() {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	p.index += 1
+	atomic.AddUint64(&p.index, 1)
 }
 
 // Implements the LogicalClock interface.
 func (p *ProcessClock) Tock() uint64 {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	return p.index
+	return atomic.LoadUint64(&p.index)
 }
 
 // Implements the LogicalClock interface.
 func (p *ProcessClock) Leap(to uint64) {
-	p.mutex.Lock()
-	p.mutex.Unlock()
-	p.index = to
+	atomic.StoreUint64(&p.index, to)
 }
 
 func NewClock() LogicalClock {
 	return &ProcessClock{
-		mutex: &sync.Mutex{},
 		index: 0,
 	}
 }

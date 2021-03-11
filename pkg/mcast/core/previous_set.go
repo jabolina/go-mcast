@@ -5,18 +5,18 @@ import (
 	"sync"
 )
 
-// Previous set used by the protocol for handling
+// Previous priorityQueue used by the protocol for handling
 // conflicts and ordering messages.
-// This set *must* be thread safety.
+// This priorityQueue *must* be thread safety.
 type PreviousSet interface {
-	// Add a message into the set.
+	// Add a message into the priorityQueue.
 	Append(message types.Message)
 
-	// Clear the whole set.
+	// Clear the whole priorityQueue.
 	Clear()
 
 	// Creates an snapshot of the messages present
-	// on the previous set and returns as a slice.
+	// on the previous priorityQueue and returns as a slice.
 	Snapshot() []types.Message
 }
 
