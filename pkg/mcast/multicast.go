@@ -22,17 +22,22 @@ type Multicast struct {
 }
 
 func NewGenericMulticast(configuration *types.Configuration) (IMulticast, error) {
+	if err := configuration.IsValid(); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	peerConfiguration := &types.PeerConfiguration{
-		Name:      string(configuration.Name),
+		Name:      configuration.Name,
 		Partition: configuration.Partition,
+		Address:   configuration.Address,
 		Version:   configuration.Version,
 		Conflict:  configuration.Conflict,
 		Storage:   configuration.Storage,
 		Ctx:       ctx,
 		Cancel:    cancel,
 	}
-	peer, err := core.NewPeer(peerConfiguration, configuration.Logger)
+	peer, err := core.NewPeer(peerConfiguration, configuration.Oracle, configuration.Logger)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -65,7 +70,7 @@ func (m *Multicast) Write(request types.Request) <-chan types.Response {
 		State:       types.S0,
 		Timestamp:   0,
 		Destination: request.Destination,
-		From:        m.configuration.Name,
+		From:        m.configuration.Partition,
 	}
 	return m.peer.Command(message)
 }

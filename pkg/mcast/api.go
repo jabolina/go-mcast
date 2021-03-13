@@ -21,7 +21,7 @@ func NewMulticastConfigured(configuration *types.Configuration) (IMulticast, err
 // relationship for the messages.
 func DefaultConfiguration(name types.Partition) *types.Configuration {
 	return &types.Configuration{
-		Name:      name,
+		Name:      types.PeerName(name),
 		Partition: name,
 		Version:   types.LatestProtocolVersion,
 		Conflict:  &definition.AlwaysConflict{},

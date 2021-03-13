@@ -1,4 +1,4 @@
-ENV = $(shell go env GOPATH)
+ ENV = $(shell go env GOPATH)
 GO_VERSION = $(shell go version)
 GO111MODULE=on
 

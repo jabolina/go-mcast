@@ -7,19 +7,6 @@ import (
 	"time"
 )
 
-func TestProtocol_BootstrapUnity(t *testing.T) {
-	partitionName := types.Partition("bootstrap-1-unity")
-	unity := CreateUnity(partitionName, t)
-	time.Sleep(time.Second)
-	unity.Shutdown()
-}
-
-func TestProtocol_BootstrapUnityCluster(t *testing.T) {
-	cluster := CreateCluster(3, "cluster", t)
-	time.Sleep(time.Second)
-	cluster.Off()
-}
-
 // When dispatching a message to single unity containing a single
 // process, the message will be transferred directly to state S3
 // and can be delivered/committed.
@@ -27,7 +14,7 @@ func TestProtocol_BootstrapUnityCluster(t *testing.T) {
 // Then a response will be queried back from the unity state machine.
 func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 	partitionName := types.Partition("single.unity")
-	unity := CreateUnity(partitionName, t)
+	unity := CreateUnity(partitionName, []int{32200}, t)
 	defer unity.Shutdown()
 	value := []byte("test")
 	write := types.Request{
@@ -74,8 +61,8 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 	partitionOne := types.Partition("single-unity-one")
 	partitionTwo := types.Partition("single-unity-two")
-	unityOne := CreateUnity(partitionOne, t)
-	unityTwo := CreateUnity(partitionTwo, t)
+	unityOne := CreateUnity(partitionOne, []int{32020}, t)
+	unityTwo := CreateUnity(partitionTwo, []int{32030}, t)
 	defer unityOne.Shutdown()
 	defer unityTwo.Shutdown()
 	value := []byte("test")
@@ -129,8 +116,8 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 	partitionOne := types.Partition("a-single-unity-one")
 	partitionTwo := types.Partition("b-single-unity-two")
-	unityOne := CreateUnity(partitionOne, t)
-	unityTwo := CreateUnity(partitionTwo, t)
+	unityOne := CreateUnity(partitionOne, []int{32000}, t)
+	unityTwo := CreateUnity(partitionTwo, []int{32010}, t)
 	defer func() {
 		unityOne.Shutdown()
 		unityTwo.Shutdown()

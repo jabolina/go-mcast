@@ -54,41 +54,51 @@ func (c *UnityCluster) Off() {
 	c.group.Wait()
 }
 
-func CreateUnityConflict(name types.Partition, conflict types.ConflictRelationship, t *testing.T) Unity {
+func CreateUnityConflict(name types.Partition, ports []int, conflict types.ConflictRelationship, t *testing.T) Unity {
 	conf := mcast.DefaultConfiguration(name)
-	conf.Logger.ToggleDebug(false)
+	conf.Logger.ToggleDebug(true)
 	conf.Logger.AddContext(string(name))
 	conf.Conflict = conflict
-	unity, err := NewUnity(conf, 3)
+	conf.Oracle = &OracleTesting{}
+	unity, err := NewUnity(conf, ports)
 	if err != nil {
 		t.Fatalf("failed creating unity %s. %v", name, err)
 	}
 	return unity
 }
 
-func CreateUnity(name types.Partition, t *testing.T) Unity {
-	return CreateUnityConflict(name, definition.AlwaysConflict{}, t)
+func CreateUnity(name types.Partition, ports []int, t *testing.T) Unity {
+	return CreateUnityConflict(name, ports, definition.AlwaysConflict{}, t)
 }
 
-func CreateClusterConflict(clusterSize int, prefix string, conflict types.ConflictRelationship, t *testing.T) *UnityCluster {
+func CreateClusterConflict(prefix string, conflict types.ConflictRelationship, ports [][]int, t *testing.T) *UnityCluster {
 	cluster := &UnityCluster{
 		T:     t,
 		group: &sync.WaitGroup{},
 		mutex: &sync.Mutex{},
-		Names: make([]types.Partition, clusterSize),
+		Names: make([]types.Partition, len(ports)),
 	}
 	var unities []Unity
-	for i := 0; i < clusterSize; i++ {
-		name := types.Partition(fmt.Sprintf("%s-%s", prefix, helper.GenerateUID()))
+	for i, partitionPorts := range ports {
+		name := ProperPartitionName(prefix, partitionPorts)
 		cluster.Names[i] = name
-		unities = append(unities, CreateUnityConflict(name, conflict, t))
+		unities = append(unities, CreateUnityConflict(name, partitionPorts, conflict, t))
 	}
 	cluster.Unities = unities
 	return cluster
 }
 
-func CreateCluster(clusterSize int, prefix string, t *testing.T) *UnityCluster {
-	return CreateClusterConflict(clusterSize, prefix, definition.AlwaysConflict{}, t)
+func ProperPartitionName(prefix string, ports []int) types.Partition {
+	addresses := ""
+	for _, port := range ports {
+		addresses = fmt.Sprintf("%s.%d", addresses, port)
+	}
+	baseName := types.Partition(fmt.Sprintf("%s-%s", prefix, helper.GenerateUID()))
+	return types.Partition(fmt.Sprintf("%s%s%s", baseName, PartitionSeparator, addresses))
+}
+
+func CreateCluster(prefix string, ports [][]int, t *testing.T) *UnityCluster {
+	return CreateClusterConflict(prefix, definition.AlwaysConflict{}, ports, t)
 }
 
 func (c *UnityCluster) Next() Unity {
@@ -116,20 +126,16 @@ func DoWeMatch(expected []types.DataHolder, unities []Unity, t *testing.T) {
 		outputValues(res.Data, string(unity.WhoAmI()))
 
 		toVerify := onlyOrdered(res.Data)
-		for index, holder := range toVerify {
-			expectedData := expected[index]
-			if !bytes.Equal(expectedData.Content, holder.Content) {
-				t.Errorf("Content differ cmd %d for unity %s, expected %#v, found %#v", index, unity.WhoAmI(), expectedData, holder)
+		for i, holder := range expected {
+			if len(toVerify)-1 < i {
+				t.Errorf("Content differ cmd %d for unity %s, expected %#v, found nothing", i, unity.WhoAmI(), holder)
 				continue
 			}
-		}
 
-		if len(res.Data) == len(toVerify) {
-			if len(res.Data) != len(expected) {
-				t.Errorf("C-Hist differ on size, expected %d found %d", len(expected), len(res.Data))
+			actual := toVerify[i]
+			if !bytes.Equal(holder.Content, actual.Content) {
+				t.Errorf("Content differ cmd %d for unity %s, expected %#v, found %#v", i, unity.WhoAmI(), holder, actual)
 			}
-		} else {
-			t.Logf("had generic message @ %s", unity.WhoAmI())
 		}
 	}
 }

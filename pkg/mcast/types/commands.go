@@ -6,11 +6,20 @@ package types
 // whole protocol with this unique generated id.
 type UID string
 
+// The name for a participant inside the protocol.
+// This should be unique for each participant on the protocol,
+// is not used in fact by the protocol, but used as a helper when
+// debugging or resolving addresses.
+type PeerName string
+
 // A partition is a unique name given to a group of processes.
 // This group of processes will work as a single unity and any
 // external interaction will be as if the partition is a single
 // process.
 type Partition string
+
+// Address the participant will bind to.
+type TCPAddress string
 
 // Defines which kind of operation is the request doing.
 type Operation string
@@ -187,11 +196,5 @@ func (m Message) Diff(m2 Message) bool {
 // This is required so we can only go forward on time
 // and can handle any delayed message.
 func (m Message) Updated(m2 Message) bool {
-	if m.Identifier == m2.Identifier {
-		if m.Timestamp == m2.Timestamp {
-			return m2.State > m.State
-		}
-		return m2.Timestamp > m.Timestamp && m2.State > m.State
-	}
-	return false
+	return m.Identifier == m2.Identifier && m2.State > m.State
 }
