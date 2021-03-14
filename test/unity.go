@@ -1,10 +1,10 @@
-package mcast
+package test
 
 import (
 	"context"
 	"fmt"
+	"github.com/jabolina/go-mcast/pkg/mcast"
 	"github.com/jabolina/go-mcast/pkg/mcast/core"
-	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 )
 
@@ -41,7 +41,7 @@ type Unity interface {
 // Concrete implementation of the Unity interface.
 type PeerUnity struct {
 	// Hold all peers.
-	Peers []core.PartitionPeer
+	Peers []mcast.IMulticast
 
 	// Hold the configuration for the whole unity.
 	Configuration *types.Configuration
@@ -56,25 +56,17 @@ type PeerUnity struct {
 	Finish context.CancelFunc
 }
 
-func NewUnity(configuration *types.Configuration) (Unity, error) {
-	invk := core.InvokerInstance()
-	var peers []core.PartitionPeer
-	ctx, cancel := context.WithCancel(context.Background())
-	for i := 0; i < configuration.Replication; i++ {
-		pc := &types.PeerConfiguration{
-			Name:      fmt.Sprintf("%s-%d", configuration.Name, i),
-			Partition: configuration.Name,
-			Version:   configuration.Version,
-			Conflict:  configuration.Conflict,
-			Storage:   configuration.Storage,
-			Ctx:       ctx,
-			Cancel:    cancel,
-		}
-		peer, err := core.NewPeer(pc, configuration.Logger)
+func NewUnity(configuration *types.Configuration, replication int) (Unity, error) {
+	invk := NewInvoker()
+	var peers []mcast.IMulticast
+	_, cancel := context.WithCancel(context.Background())
+	for i := 0; i < replication; i++ {
+		configuration.Name = types.Partition(fmt.Sprintf("%s-%d", configuration.Name, i))
+		peer, err := mcast.NewGenericMulticast(configuration)
 		if err != nil {
 			cancel()
 			for _, createdPrev := range peers {
-				createdPrev.Stop()
+				createdPrev.Close()
 			}
 			return nil, err
 		}
@@ -93,39 +85,22 @@ func NewUnity(configuration *types.Configuration) (Unity, error) {
 
 // Implements the Unity interface.
 func (p *PeerUnity) Write(request types.Request) <-chan types.Response {
-	id := types.UID(helper.GenerateUID())
-	message := types.Message{
-		Header: types.ProtocolHeader{
-			ProtocolVersion: p.Configuration.Version,
-			Type:            types.Initial,
-		},
-		Identifier: id,
-		Content: types.DataHolder{
-			Operation:  types.Command,
-			Content:    request.Value,
-			Extensions: request.Extra,
-		},
-		State:       types.S0,
-		Timestamp:   0,
-		Destination: request.Destination,
-		From:        p.Configuration.Name,
-	}
 	peer := p.resolveNextPeer()
-	p.Configuration.Logger.Infof("sending message %#v from %s\n", message, p.Configuration.Name)
-	return peer.Command(message)
+	p.Configuration.Logger.Infof("sending message %#v from %s\n", request, p.Configuration.Name)
+	return peer.Write(request)
 }
 
 // Implements the Unity interface.
 func (p *PeerUnity) Read() types.Response {
 	peer := p.resolveNextPeer()
-	return peer.FastRead()
+	return peer.Read()
 }
 
 // Implements the Unity interface.
 func (p *PeerUnity) Shutdown() {
 	p.Finish()
 	for _, peer := range p.Peers {
-		peer.Stop()
+		peer.Close()
 	}
 	p.Invoker.Stop()
 }
@@ -137,7 +112,7 @@ func (p *PeerUnity) WhoAmI() types.Partition {
 
 // Returns the next peer to be used. This will
 // work as a round robin chain.
-func (p PeerUnity) resolveNextPeer() core.PartitionPeer {
+func (p PeerUnity) resolveNextPeer() mcast.IMulticast {
 	defer func() {
 		p.Last += 1
 	}()

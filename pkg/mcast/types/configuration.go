@@ -30,15 +30,15 @@ type PeerConfiguration struct {
 
 // The configuration for using the atomic multicast.
 type Configuration struct {
-	// The name for this multicast partition.
-	// This will also be used to create an exchange on
-	// the RabbitMQ broker. So, this name must be unique
-	// across multiple partitions.
+	// The name for the current participant.
+	// Used mostly for debugging purposes, this should be a unique
+	// identifier of the protocol participant.
 	Name Partition
 
-	// The replication factor of how many peers must
-	// this partition create.
-	Replication int
+	// Identify the partition in which the current peer will be a
+	// part of. The common way is to have multiple participants inside
+	// a same partition.
+	Partition Partition
 
 	// Which version of the protocol will be used.
 	Version uint

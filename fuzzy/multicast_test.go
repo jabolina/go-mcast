@@ -1,7 +1,6 @@
 package fuzzy
 
 import (
-	"github.com/jabolina/go-mcast/pkg/mcast"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"github.com/jabolina/go-mcast/test"
 	"go.uber.org/goleak"
@@ -46,7 +45,7 @@ func Test_MulticastSequentialCommands(t *testing.T) {
 		t.Errorf("failed reading values. %#v", truth.Failure)
 	}
 
-	test.DoWeMatch(truth.Data, []mcast.Unity{second, third}, t)
+	test.DoWeMatch(truth.Data, []test.Unity{second, third}, t)
 }
 
 // Will send commands to different partitions concurrently.
@@ -99,5 +98,5 @@ func Test_MulticastMessagesConcurrently(t *testing.T) {
 		t.Errorf("failed reading values. %#v", truth.Failure)
 	}
 
-	test.DoWeMatch(truth.Data, []mcast.Unity{second, third}, t)
+	test.DoWeMatch(truth.Data, []test.Unity{second, third}, t)
 }

@@ -7,13 +7,13 @@ import (
 
 // Creates a new multicast instance for the partition with the
 // given name. This will use the default configuration.
-func NewMulticast(name types.Partition) (Unity, error) {
+func NewMulticast(name types.Partition) (IMulticast, error) {
 	return NewMulticastConfigured(DefaultConfiguration(name))
 }
 
 // Create a new multicast instance using the given configuration.
-func NewMulticastConfigured(configuration *types.Configuration) (Unity, error) {
-	return NewUnity(configuration)
+func NewMulticastConfigured(configuration *types.Configuration) (IMulticast, error) {
+	return NewGenericMulticast(configuration)
 }
 
 // Creates the default configuration for a partition with the given
@@ -21,12 +21,12 @@ func NewMulticastConfigured(configuration *types.Configuration) (Unity, error) {
 // relationship for the messages.
 func DefaultConfiguration(name types.Partition) *types.Configuration {
 	return &types.Configuration{
-		Name:        name,
-		Replication: 3,
-		Version:     types.LatestProtocolVersion,
-		Conflict:    &definition.AlwaysConflict{},
-		Storage:     definition.NewDefaultStorage(),
-		Logger:      definition.NewDefaultLogger(),
+		Name:      name,
+		Partition: name,
+		Version:   types.LatestProtocolVersion,
+		Conflict:  &definition.AlwaysConflict{},
+		Storage:   definition.NewDefaultStorage(),
+		Logger:    definition.NewDefaultLogger(),
 	}
 }
 

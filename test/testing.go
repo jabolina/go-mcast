@@ -2,7 +2,6 @@ package test
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast"
 	"github.com/jabolina/go-mcast/pkg/mcast/core"
@@ -40,7 +39,7 @@ func NewInvoker() core.Invoker {
 type UnityCluster struct {
 	T       *testing.T
 	Names   []types.Partition
-	Unities []mcast.Unity
+	Unities []Unity
 	mutex   *sync.Mutex
 	group   *sync.WaitGroup
 	index   int
@@ -55,54 +54,19 @@ func (c *UnityCluster) Off() {
 	c.group.Wait()
 }
 
-func NewTestingUnity(configuration *types.Configuration) (mcast.Unity, error) {
-	invk := NewInvoker()
-	var peers []core.PartitionPeer
-	ctx, cancel := context.WithCancel(context.Background())
-	for i := 0; i < configuration.Replication; i++ {
-		pc := &types.PeerConfiguration{
-			Name:      fmt.Sprintf("%s-%d", configuration.Name, i),
-			Partition: configuration.Name,
-			Version:   configuration.Version,
-			Conflict:  configuration.Conflict,
-			Storage:   configuration.Storage,
-			Ctx:       ctx,
-			Cancel:    cancel,
-		}
-		peer, err := core.NewPeer(pc, configuration.Logger)
-		if err != nil {
-			cancel()
-			for _, prevCreated := range peers {
-				prevCreated.Stop()
-			}
-			return nil, err
-		}
-
-		peers = append(peers, peer)
-	}
-	pu := &mcast.PeerUnity{
-		Configuration: configuration,
-		Peers:         peers,
-		Last:          0,
-		Invoker:       invk,
-		Finish:        cancel,
-	}
-	return pu, nil
-}
-
-func CreateUnityConflict(name types.Partition, conflict types.ConflictRelationship, t *testing.T) mcast.Unity {
+func CreateUnityConflict(name types.Partition, conflict types.ConflictRelationship, t *testing.T) Unity {
 	conf := mcast.DefaultConfiguration(name)
 	conf.Logger.ToggleDebug(false)
 	conf.Logger.AddContext(string(name))
 	conf.Conflict = conflict
-	unity, err := NewTestingUnity(conf)
+	unity, err := NewUnity(conf, 3)
 	if err != nil {
 		t.Fatalf("failed creating unity %s. %v", name, err)
 	}
 	return unity
 }
 
-func CreateUnity(name types.Partition, t *testing.T) mcast.Unity {
+func CreateUnity(name types.Partition, t *testing.T) Unity {
 	return CreateUnityConflict(name, definition.AlwaysConflict{}, t)
 }
 
@@ -113,7 +77,7 @@ func CreateClusterConflict(clusterSize int, prefix string, conflict types.Confli
 		mutex: &sync.Mutex{},
 		Names: make([]types.Partition, clusterSize),
 	}
-	var unities []mcast.Unity
+	var unities []Unity
 	for i := 0; i < clusterSize; i++ {
 		name := types.Partition(fmt.Sprintf("%s-%s", prefix, helper.GenerateUID()))
 		cluster.Names[i] = name
@@ -127,7 +91,7 @@ func CreateCluster(clusterSize int, prefix string, t *testing.T) *UnityCluster {
 	return CreateClusterConflict(clusterSize, prefix, definition.AlwaysConflict{}, t)
 }
 
-func (c *UnityCluster) Next() mcast.Unity {
+func (c *UnityCluster) Next() Unity {
 	c.mutex.Lock()
 	defer func() {
 		c.index += 1
@@ -141,7 +105,7 @@ func (c *UnityCluster) Next() mcast.Unity {
 	return c.Unities[c.index]
 }
 
-func DoWeMatch(expected []types.DataHolder, unities []mcast.Unity, t *testing.T) {
+func DoWeMatch(expected []types.DataHolder, unities []Unity, t *testing.T) {
 	for _, unity := range unities {
 		res := unity.Read()
 
@@ -202,7 +166,7 @@ func (c UnityCluster) DoesAllClusterMatch() {
 	c.DoesClusterMatchTo(onlyOrdered(res.Data))
 }
 
-func (c *UnityCluster) PoweroffUnity(unity mcast.Unity) {
+func (c *UnityCluster) PoweroffUnity(unity Unity) {
 	defer c.group.Done()
 	unity.Shutdown()
 }
