@@ -44,11 +44,11 @@ func Test_TransportActAsAUnity(t *testing.T) {
 		var history []*MessageHist
 		for i := 0; i < size; i++ {
 			cfg := &types.PeerConfiguration{
-				Name:      partition + fmt.Sprintf("-%d", i),
+				Name:      types.PeerName(fmt.Sprintf("%s-%d", partition, i)),
 				Partition: types.Partition(partition),
 				Ctx:       ctx,
 			}
-			trans, err := core.NewTransport(cfg, definition.NewDefaultLogger())
+			trans, err := core.NewReliableTransport(cfg, definition.NewDefaultLogger())
 			if err != nil {
 				t.Fatalf("failed creating transport. %#v", err)
 			}

@@ -15,13 +15,17 @@ import (
 func Test_MulticastSequentialCommands(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	partitionA := types.Partition("partition-a")
-	partitionB := types.Partition("partition-b")
-	partitionC := types.Partition("partition-c")
+	partition1 := []int{25000, 25001, 25002}
+	partition2 := []int{25003, 25004, 25005}
+	partition3 := []int{25006, 25007, 25008}
 
-	first := test.CreateUnity(partitionA, t)
-	second := test.CreateUnity(partitionB, t)
-	third := test.CreateUnity(partitionC, t)
+	partitionA := test.ProperPartitionName("mcast-sync-a", partition1)
+	partitionB := test.ProperPartitionName("mcast-sync-b", partition2)
+	partitionC := test.ProperPartitionName("mcast-sync-c", partition3)
+
+	first := test.CreateUnity(partitionA, partition1, t)
+	second := test.CreateUnity(partitionB, partition2, t)
+	third := test.CreateUnity(partitionC, partition3, t)
 
 	defer first.Shutdown()
 	defer second.Shutdown()
@@ -54,13 +58,17 @@ func Test_MulticastSequentialCommands(t *testing.T) {
 func Test_MulticastMessagesConcurrently(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
-	partitionA := types.Partition("partition-a")
-	partitionB := types.Partition("partition-b")
-	partitionC := types.Partition("partition-c")
+	partition1 := []int{26000, 26001, 26002}
+	partition2 := []int{26003, 26004, 26005}
+	partition3 := []int{26006, 26007, 26008}
 
-	first := test.CreateUnity(partitionA, t)
-	second := test.CreateUnity(partitionB, t)
-	third := test.CreateUnity(partitionC, t)
+	partitionA := test.ProperPartitionName("mcast-async-a", partition1)
+	partitionB := test.ProperPartitionName("mcast-async-b", partition2)
+	partitionC := test.ProperPartitionName("mcast-async-c", partition3)
+
+	first := test.CreateUnity(partitionA, partition1, t)
+	second := test.CreateUnity(partitionB, partition2, t)
+	third := test.CreateUnity(partitionC, partition3, t)
 
 	wait := &sync.WaitGroup{}
 

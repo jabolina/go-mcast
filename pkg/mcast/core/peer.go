@@ -81,7 +81,10 @@ type Peer struct {
 
 	// Transport used for communication between peers
 	// and between partitions.
-	transport Transport
+	reliableTransport Transport
+
+	// Transport used for unreliable communication.
+	unreliableTransport Transport
 
 	// The peer clock for defining a message timestamp.
 	clock LogicalClock
@@ -128,36 +131,42 @@ type Peer struct {
 
 // Creates a new peer for the given configuration and
 // start polling for new messages.
-func NewPeer(configuration *types.PeerConfiguration, logger types.Logger) (PartitionPeer, error) {
-	t, err := NewTransport(configuration, logger)
+func NewPeer(configuration *types.PeerConfiguration, oracle types.Oracle, logger types.Logger) (PartitionPeer, error) {
+	reliableTransport, err := NewReliableTransport(configuration, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	unreliableTransport, err := NewUnreliableTransport(configuration, oracle)
 	if err != nil {
 		return nil, err
 	}
 
 	logStructure := types.NewLogStructure(configuration.Storage)
-	deliver, err := NewDeliver(configuration.Name, logger, logStructure)
+	deliver, err := NewDeliver(string(configuration.Name), logger, logStructure)
 	if err != nil {
 		configuration.Cancel()
 		return nil, err
 	}
 
 	p := &Peer{
-		mutex:          &sync.Mutex{},
-		observers:      make(map[types.UID]observer),
-		invoker:        InvokerInstance(),
-		configuration:  configuration,
-		transport:      t,
-		clock:          NewClock(),
-		previousSet:    NewPreviousSet(),
-		deliver:        deliver,
-		logAbstraction: logStructure,
-		conflict:       configuration.Conflict,
-		logger:         logger,
-		received:       NewMemo(),
-		updated:        make(chan types.Message),
-		delivering:     make(chan deliverRequest),
-		context:        configuration.Ctx,
-		finish:         configuration.Cancel,
+		mutex:               &sync.Mutex{},
+		observers:           make(map[types.UID]observer),
+		invoker:             InvokerInstance(),
+		configuration:       configuration,
+		reliableTransport:   reliableTransport,
+		unreliableTransport: unreliableTransport,
+		clock:               NewClock(),
+		previousSet:         NewPreviousSet(),
+		deliver:             deliver,
+		logAbstraction:      logStructure,
+		conflict:            configuration.Conflict,
+		logger:              logger,
+		received:            NewMemo(),
+		updated:             make(chan types.Message),
+		delivering:          make(chan deliverRequest),
+		context:             configuration.Ctx,
+		finish:              configuration.Cancel,
 	}
 	p.rqueue = NewQueue(configuration.Ctx, configuration.Conflict, p.delivering)
 	p.invoker.Spawn(p.poll)
@@ -169,7 +178,7 @@ func NewPeer(configuration *types.PeerConfiguration, logger types.Logger) (Parti
 func (p *Peer) Command(message types.Message) <-chan types.Response {
 	res := make(chan types.Response, 1)
 	apply := func() {
-		err := p.transport.Broadcast(message)
+		err := p.reliableTransport.Broadcast(message)
 		if err != nil {
 			finalResponse := types.Response{
 				Success: false,
@@ -226,12 +235,13 @@ func (p *Peer) Stop() {
 		close(p.delivering)
 	}()
 	p.finish()
-	p.transport.Close()
+	p.reliableTransport.Close()
+	p.unreliableTransport.Close()
 }
 
 // This method will keep polling as long as the peer
 // is active.
-// Listening for messages received from the transport
+// Listening for messages received from the reliableTransport
 // and processing following the protocol definition.
 // If the context is cancelled, this method will stop.
 func (p *Peer) poll() {
@@ -247,7 +257,12 @@ func (p *Peer) poll() {
 			p.invoker.Spawn(func() {
 				p.send(m, types.Initial, inner)
 			})
-		case m, ok := <-p.transport.Listen():
+		case m, ok := <-p.reliableTransport.Listen():
+			if !ok {
+				return
+			}
+			p.process(m)
+		case m, ok := <-p.unreliableTransport.Listen():
 			if !ok {
 				return
 			}
@@ -256,7 +271,7 @@ func (p *Peer) poll() {
 	}
 }
 
-// Process the received message from the transport.
+// Process the received message from the reliableTransport.
 // First verify if the current configured peer can handle
 // this request version.
 //
@@ -277,8 +292,12 @@ func (p *Peer) process(message types.Message) {
 		return
 	}
 	enqueue := true
+	sState, sTs := message.State, message.Timestamp
 	defer func() {
-		if enqueue && p.rqueue.Enqueue(message) {
+		eState, eTs := message.State, message.Timestamp
+		insert := enqueue && p.rqueue.Enqueue(message)
+		p.logger.Debugf("%s - (%d, %d) -> (%d, %d) %d %v @ %s <-> %s", message.Identifier, sState, sTs, eState, eTs, message.Header.Type, insert, p.configuration.Name, message.From)
+		if insert {
 			p.invoker.Spawn(func() {
 				p.reprocessMessage(message)
 			})
@@ -287,10 +306,8 @@ func (p *Peer) process(message types.Message) {
 
 	switch header.Type {
 	case types.Initial:
-		p.logger.Debugf("processing internal request %#v", message)
 		p.processInitialMessage(&message)
 	case types.External:
-		p.logger.Debugf("processing external request %#v", message)
 		enqueue = p.exchangeTimestamp(&message)
 	default:
 		p.logger.Warnf("unknown message type %d", header.Type)
@@ -377,7 +394,7 @@ func (p *Peer) exchangeTimestamp(message *types.Message) bool {
 	return true
 }
 
-// Used to send a request using the transport API.
+// Used to send a request using the reliableTransport API.
 // Used for request across partitions, when exchanging the
 // message timestamp or when broadcasting the message internally
 // inside a partition.
@@ -393,10 +410,17 @@ func (p *Peer) send(message types.Message, t types.MessageType, emission emissio
 
 	for _, partition := range destination {
 		tries := 0
-		for err := p.transport.Unicast(message, partition); err != nil && tries < 5; tries++ {
+		for err := p.dispatch(message, partition, emission); err != nil && tries < 5; tries++ {
 			p.logger.Errorf("error unicast %s to partition %s. %v", message.Identifier, partition, err)
 		}
 	}
+}
+
+func (p *Peer) dispatch(message types.Message, partition types.Partition, emission emission) error {
+	if emission == inner {
+		return p.unreliableTransport.Unicast(message, partition)
+	}
+	return p.reliableTransport.Unicast(message, partition)
 }
 
 func (p *Peer) alreadyExchangedTimestamps(message types.Message) bool {
@@ -451,21 +475,21 @@ func (p *Peer) doDeliver() {
 			} else {
 				p.rqueue.Pop()
 			}
+		})
 
+		p.invoker.Spawn(func() {
 			p.mutex.Lock()
 			defer p.mutex.Unlock()
 
 			obs, ok := p.observers[m.Identifier]
 			if ok {
+				defer close(obs.notify)
 				select {
 				case <-p.context.Done():
-					break
-				case <-time.After(150 * time.Millisecond):
-					break
+					return
 				case obs.notify <- res:
 					break
 				}
-				close(obs.notify)
 				delete(p.observers, obs.uid)
 			}
 		})

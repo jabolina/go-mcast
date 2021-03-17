@@ -56,13 +56,17 @@ type PeerUnity struct {
 	Finish context.CancelFunc
 }
 
-func NewUnity(configuration *types.Configuration, replication int) (Unity, error) {
+func NewUnity(configuration *types.Configuration, ports []int) (Unity, error) {
 	invk := NewInvoker()
 	var peers []mcast.IMulticast
 	_, cancel := context.WithCancel(context.Background())
-	for i := 0; i < replication; i++ {
-		configuration.Name = types.Partition(fmt.Sprintf("%s-%d", configuration.Name, i))
-		peer, err := mcast.NewGenericMulticast(configuration)
+	baseName := configuration.Name
+
+	for _, port := range ports {
+		conf := configuration
+		conf.Name = types.PeerName(fmt.Sprintf("%s-%d", baseName, port))
+		conf.Address = types.TCPAddress(fmt.Sprintf("%s:%d", baseAddress, port))
+		peer, err := mcast.NewGenericMulticast(conf)
 		if err != nil {
 			cancel()
 			for _, createdPrev := range peers {
@@ -107,7 +111,7 @@ func (p *PeerUnity) Shutdown() {
 
 // Implements the Unity interface.
 func (p *PeerUnity) WhoAmI() types.Partition {
-	return p.Configuration.Name
+	return p.Configuration.Partition
 }
 
 // Returns the next peer to be used. This will

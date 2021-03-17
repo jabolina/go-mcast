@@ -16,13 +16,17 @@ import (
 // all partitions will end at the same state, since in this
 // test no failure is injected over the transport.
 func Test_BroadcastSequentialCommands(t *testing.T) {
-	cluster := test.CreateCluster(3, "alphabet", t)
+	defer goleak.VerifyNone(t)
+	partition1 := []int{24000, 24001, 24002}
+	partition2 := []int{24003, 24004, 24005}
+	partition3 := []int{24006, 24007, 24008}
+	ports := [][]int{partition1, partition2, partition3}
+	cluster := test.CreateCluster("alphabet", ports, t)
 	defer func() {
 		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
 			t.Error("failed shutdown cluster")
 			test.PrintStackTrace(t)
 		}
-		goleak.VerifyNone(t)
 	}()
 
 	for _, letter := range test.Alphabet {
@@ -46,13 +50,17 @@ func Test_BroadcastSequentialCommands(t *testing.T) {
 }
 
 func Test_BroadcastConcurrentCommands(t *testing.T) {
-	cluster := test.CreateCluster(3, "concurrent", t)
+	defer goleak.VerifyNone(t)
+	partition1 := []int{20000, 20001, 20002}
+	partition2 := []int{20003, 20004, 20005}
+	partition3 := []int{20006, 20007, 20008}
+	ports := [][]int{partition1, partition2, partition3}
+	cluster := test.CreateCluster("concurrent", ports, t)
 	defer func() {
 		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
 			t.Error("failed shutdown cluster")
 			test.PrintStackTrace(t)
 		}
-		goleak.VerifyNone(t)
 	}()
 
 	group := sync.WaitGroup{}

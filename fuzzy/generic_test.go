@@ -19,7 +19,11 @@ func (c *ConflictWhenNeeded) Conflict(message types.Message, _ []types.Message) 
 
 func Test_ShouldMaintainConsistencyWhenSyncGeneric(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	cluster := test.CreateClusterConflict(3, "generic-sync", &ConflictWhenNeeded{}, t)
+	partition1 := []int{21000, 21001, 21002}
+	partition2 := []int{21003, 21004, 21005}
+	partition3 := []int{21006, 21007, 21008}
+	ports := [][]int{partition1, partition2, partition3}
+	cluster := test.CreateClusterConflict("generic-sync", &ConflictWhenNeeded{}, ports, t)
 	testSize := 50
 	defer func() {
 		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
@@ -37,7 +41,7 @@ func Test_ShouldMaintainConsistencyWhenSyncGeneric(t *testing.T) {
 		}
 		select {
 		case <-ctx.Done():
-			t.Errorf("failed writing")
+			t.Error("failed writing")
 		case res := <-cluster.Next().Write(req):
 			if !res.Success {
 				t.Errorf("failed writing request. %#v", res.Failure)
@@ -53,7 +57,11 @@ func Test_ShouldMaintainConsistencyWhenSyncGeneric(t *testing.T) {
 
 func Test_ShouldMaintainConsistencyWhenAsyncGeneric(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	cluster := test.CreateClusterConflict(3, "generic-async", &ConflictWhenNeeded{}, t)
+	partition1 := []int{23000, 23001, 23002}
+	partition2 := []int{23003, 23004, 23005}
+	partition3 := []int{23006, 23007, 23008}
+	ports := [][]int{partition1, partition2, partition3}
+	cluster := test.CreateClusterConflict("generic-async", &ConflictWhenNeeded{}, ports, t)
 	testSize := 50
 	defer func() {
 		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
@@ -82,9 +90,8 @@ func Test_ShouldMaintainConsistencyWhenAsyncGeneric(t *testing.T) {
 
 	if !test.WaitThisOrTimeout(writers.Wait, 30*time.Second) {
 		t.Errorf("not finished all after 30 seconds!")
-		cluster.DoesAllClusterMatch()
 	} else {
 		time.Sleep(10 * time.Second)
-		cluster.DoesAllClusterMatch()
 	}
+	cluster.DoesAllClusterMatch()
 }
