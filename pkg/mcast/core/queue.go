@@ -132,6 +132,7 @@ func (r *RQueue) verifyAndDeliverHead(message types.Message) {
 // verified every 5 milliseconds and if the element
 // changed the delivery method will be called.
 func (r *RQueue) poll() {
+	defer close(r.deliver)
 	for {
 		select {
 		case <-r.ctx.Done():

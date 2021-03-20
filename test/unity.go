@@ -25,10 +25,13 @@ type Unity interface {
 	// applied successfully a channel will be returned where
 	// a response will be sent back once the request is applied
 	// in one of the participants.
-	Write(request types.Request) <-chan types.Response
+	Write(request types.Request) error
 
 	// Query a value from the unity.
 	Read() types.Response
+
+	// Start the listener.
+	Listen() <-chan types.Response
 
 	// Shutdown the unity.
 	// This is NOT a graceful shutdown, everything that
@@ -88,7 +91,7 @@ func NewUnity(configuration *types.Configuration, ports []int) (Unity, error) {
 }
 
 // Implements the Unity interface.
-func (p *PeerUnity) Write(request types.Request) <-chan types.Response {
+func (p *PeerUnity) Write(request types.Request) error {
 	peer := p.resolveNextPeer()
 	p.Configuration.Logger.Infof("sending message %#v from %s\n", request, p.Configuration.Name)
 	return peer.Write(request)
@@ -98,6 +101,11 @@ func (p *PeerUnity) Write(request types.Request) <-chan types.Response {
 func (p *PeerUnity) Read() types.Response {
 	peer := p.resolveNextPeer()
 	return peer.Read()
+}
+
+func (p *PeerUnity) Listen() <-chan types.Response {
+	peer := p.resolveNextPeer()
+	return peer.Listen()
 }
 
 // Implements the Unity interface.

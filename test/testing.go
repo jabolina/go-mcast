@@ -9,11 +9,14 @@ import (
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"github.com/prometheus/common/log"
+	"os"
 	"runtime"
 	"sync"
 	"testing"
 	"time"
 )
+
+const DefaultTestTimeout = 5 * time.Second
 
 type TestInvoker struct {
 	group *sync.WaitGroup
@@ -55,11 +58,16 @@ func (c *UnityCluster) Off() {
 }
 
 func CreateUnityConflict(name types.Partition, ports []int, conflict types.ConflictRelationship, t *testing.T) Unity {
+	_, isCi := os.LookupEnv("CI_ENV")
 	conf := mcast.DefaultConfiguration(name)
-	conf.Logger.ToggleDebug(true)
+	conf.Logger.ToggleDebug(!isCi)
 	conf.Logger.AddContext(string(name))
 	conf.Conflict = conflict
 	conf.Oracle = &OracleTesting{}
+	if isCi {
+		conf.Logger.Infof("CI environment. Timeout is 20 seconds!")
+		conf.DefaultTimeout = 20 * time.Second
+	}
 	unity, err := NewUnity(conf, ports)
 	if err != nil {
 		t.Fatalf("failed creating unity %s. %v", name, err)

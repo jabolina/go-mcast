@@ -11,31 +11,36 @@ import (
 type IMulticast interface {
 	io.Closer
 
-	Write(types.Request) <-chan types.Response
+	Write(types.Request) error
 
 	Read() types.Response
+
+	Listen() <-chan types.Response
 }
 
 type Multicast struct {
 	peer          core.PartitionPeer
 	configuration *types.Configuration
+	commit        chan types.Response
 }
 
 func NewGenericMulticast(configuration *types.Configuration) (IMulticast, error) {
 	if err := configuration.IsValid(); err != nil {
 		return nil, err
 	}
-
+	commitChan := make(chan types.Response)
 	ctx, cancel := context.WithCancel(context.Background())
 	peerConfiguration := &types.PeerConfiguration{
-		Name:      configuration.Name,
-		Partition: configuration.Partition,
-		Address:   configuration.Address,
-		Version:   configuration.Version,
-		Conflict:  configuration.Conflict,
-		Storage:   configuration.Storage,
-		Ctx:       ctx,
-		Cancel:    cancel,
+		Name:          configuration.Name,
+		Partition:     configuration.Partition,
+		Address:       configuration.Address,
+		Version:       configuration.Version,
+		Conflict:      configuration.Conflict,
+		Storage:       configuration.Storage,
+		Ctx:           ctx,
+		Cancel:        cancel,
+		Commit:        commitChan,
+		ActionTimeout: configuration.DefaultTimeout,
 	}
 	peer, err := core.NewPeer(peerConfiguration, configuration.Oracle, configuration.Logger)
 	if err != nil {
@@ -45,6 +50,7 @@ func NewGenericMulticast(configuration *types.Configuration) (IMulticast, error)
 	m := &Multicast{
 		peer:          peer,
 		configuration: configuration,
+		commit:        commitChan,
 	}
 	return m, nil
 }
@@ -54,7 +60,7 @@ func (m *Multicast) Close() error {
 	return nil
 }
 
-func (m *Multicast) Write(request types.Request) <-chan types.Response {
+func (m *Multicast) Write(request types.Request) error {
 	id := types.UID(helper.GenerateUID())
 	message := types.Message{
 		Header: types.ProtocolHeader{
@@ -73,6 +79,10 @@ func (m *Multicast) Write(request types.Request) <-chan types.Response {
 		From:        m.configuration.Partition,
 	}
 	return m.peer.Command(message)
+}
+
+func (m *Multicast) Listen() <-chan types.Response {
+	return m.commit
 }
 
 func (m *Multicast) Read() types.Response {

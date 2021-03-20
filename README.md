@@ -1,5 +1,6 @@
 # go-mcast
 ![Go](https://github.com/jabolina/go-mcast/workflows/Go/badge.svg?branch=master)
+![MCast](https://circleci.com/gh/jabolina/go-mcast.svg?style=shield)
 
 Golang based implementation of the Generic Multicast protocol
 

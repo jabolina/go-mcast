@@ -13,8 +13,9 @@ import (
 //
 // Then a response will be queried back from the unity state machine.
 func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
-	partitionName := types.Partition("single.unity")
-	unity := CreateUnity(partitionName, []int{32200}, t)
+	ports := []int{32200}
+	partitionName := ProperPartitionName("single.unity", ports)
+	unity := CreateUnity(partitionName, ports, t)
 	defer unity.Shutdown()
 	value := []byte("test")
 	write := types.Request{
@@ -22,16 +23,8 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 		Destination: []types.Partition{partitionName},
 	}
 
-	obs := unity.Write(write)
-	select {
-	case res := <-obs:
-		if !res.Success {
-			t.Fatalf("failed writting request %v", res.Failure)
-			return
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("write timeout")
-		return
+	if err := unity.Write(write); err != nil {
+		t.Fatalf("failed writting request %v", err)
 	}
 
 	time.Sleep(time.Second)
@@ -59,10 +52,12 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 // After the commit the current value will be queried back
 // from another partition.
 func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
-	partitionOne := types.Partition("single-unity-one")
-	partitionTwo := types.Partition("single-unity-two")
-	unityOne := CreateUnity(partitionOne, []int{32020}, t)
-	unityTwo := CreateUnity(partitionTwo, []int{32030}, t)
+	portFirst := []int{32020}
+	portSnd := []int{32030}
+	partitionOne := ProperPartitionName("single-unity-one", portFirst)
+	partitionTwo := ProperPartitionName("single-unity-two", portSnd)
+	unityOne := CreateUnity(partitionOne, portFirst, t)
+	unityTwo := CreateUnity(partitionTwo, portSnd, t)
 	defer unityOne.Shutdown()
 	defer unityTwo.Shutdown()
 	value := []byte("test")
@@ -71,16 +66,8 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 		Destination: []types.Partition{partitionOne, partitionTwo},
 	}
 
-	obs := unityOne.Write(write)
-	select {
-	case res := <-obs:
-		if !res.Success {
-			t.Fatalf("failed writting request %v", res.Failure)
-			return
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("write timeout")
-		return
+	if err := unityOne.Write(write); err != nil {
+		t.Fatalf("failed writting request %v", err)
 	}
 
 	// See that with the observer above we know that the value
@@ -114,10 +101,12 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 // that the second partition do not contains the applied value
 // while the first partition contains.
 func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
-	partitionOne := types.Partition("a-single-unity-one")
-	partitionTwo := types.Partition("b-single-unity-two")
-	unityOne := CreateUnity(partitionOne, []int{32000}, t)
-	unityTwo := CreateUnity(partitionTwo, []int{32010}, t)
+	portFst := []int{32000}
+	portSnd := []int{32010}
+	partitionOne := ProperPartitionName("a-single-unity-one", portFst)
+	partitionTwo := ProperPartitionName("b-single-unity-two", portSnd)
+	unityOne := CreateUnity(partitionOne, portFst, t)
+	unityTwo := CreateUnity(partitionTwo, portSnd, t)
 	defer func() {
 		unityOne.Shutdown()
 		unityTwo.Shutdown()
@@ -131,18 +120,11 @@ func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 
 	// First a value will be written on the state machine for
 	// only the first partition.
-	obs := unityOne.Write(write)
-	select {
-	case res := <-obs:
-		if !res.Success {
-			t.Fatalf("failed writting request %v", res.Failure)
-			return
-		}
-	case <-time.After(time.Second):
-		t.Fatalf("write timeout")
-		return
+	if err := unityOne.Write(write); err != nil {
+		t.Fatalf("failed writting request %v", err)
 	}
 
+	time.Sleep(time.Second)
 	// Now that the write request was applied to the first partition
 	// we verify that the second partition do not contains the applied
 	// value.

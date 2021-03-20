@@ -1,11 +1,11 @@
 package fuzzy
 
 import (
-	"context"
 	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"github.com/jabolina/go-mcast/test"
 	"go.uber.org/goleak"
+	"log"
 	"sync"
 	"testing"
 	"time"
@@ -32,26 +32,39 @@ func Test_ShouldMaintainConsistencyWhenSyncGeneric(t *testing.T) {
 		}
 	}()
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	listener := func() {
+		defer wg.Done()
+		responseChan := cluster.Next().Listen()
+		for {
+			select {
+			case res := <-responseChan:
+				if !res.Success {
+					t.Errorf("response with error %s. %#v", res.Failure.Error(), res.Data)
+				}
+			case <-time.After(5 * time.Second):
+				t.Log("stop listening unity.")
+				return
+			}
+		}
+	}
+
+	go listener()
 	for i := 0; i < testSize; i++ {
-		ctx, cancel := context.WithTimeout(context.TODO(), time.Second)
-		data := []byte(fmt.Sprintf("msg-%d", i))
+		content := fmt.Sprintf("msg-%d", i)
+		data := []byte(content)
+		log.Printf("************************** sending [%s] **************************", content)
 		req := test.GenerateRequest(data, cluster.Names)
 		if i&0x1 == 0 {
 			req.Extra = []byte(fmt.Sprintf("generic-%d", i))
 		}
-		select {
-		case <-ctx.Done():
-			t.Error("failed writing")
-		case res := <-cluster.Next().Write(req):
-			if !res.Success {
-				t.Errorf("failed writing request. %#v", res.Failure)
-				break
-			}
+		if err := cluster.Next().Write(req); err != nil {
+			t.Errorf("failed writting request %v", err)
 		}
-		cancel()
 	}
 
-	time.Sleep(5 * time.Second)
+	wg.Wait()
 	cluster.DoesAllClusterMatch()
 }
 
@@ -70,28 +83,43 @@ func Test_ShouldMaintainConsistencyWhenAsyncGeneric(t *testing.T) {
 		}
 	}()
 
-	writers := sync.WaitGroup{}
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	listener := func() {
+		defer wg.Done()
+		responseChan := cluster.Next().Listen()
+		for {
+			select {
+			case res := <-responseChan:
+				if !res.Success {
+					t.Errorf("response with error %s. %#v", res.Failure.Error(), res.Data)
+				}
+			case <-time.After(5 * time.Second):
+				t.Log("stop listening unity.")
+				return
+			}
+		}
+	}
 	write := func(idx int, val string) {
-		defer writers.Done()
+		defer wg.Done()
+		log.Printf("************************** sending [%s] **************************", val)
 		req := test.GenerateRequest([]byte(val), cluster.Names)
 		if idx&0x1 == 0 {
 			req.Extra = []byte(fmt.Sprintf("generic-%d", idx))
 		}
-		res := <-cluster.Next().Write(req)
-		if !res.Success {
-			t.Errorf("failed writting request %v", res.Failure)
+		if err := cluster.Next().Write(req); err != nil {
+			t.Errorf("failed writting request %v", err)
 		}
 	}
 
-	writers.Add(testSize)
+	go listener()
+	wg.Add(testSize)
 	for i := 0; i < testSize; i++ {
 		go write(i, fmt.Sprintf("msg-%d", i))
 	}
 
-	if !test.WaitThisOrTimeout(writers.Wait, 30*time.Second) {
+	if !test.WaitThisOrTimeout(wg.Wait, 30*time.Second) {
 		t.Errorf("not finished all after 30 seconds!")
-	} else {
-		time.Sleep(10 * time.Second)
 	}
 	cluster.DoesAllClusterMatch()
 }

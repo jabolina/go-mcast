@@ -32,15 +32,15 @@ func Test_MulticastSequentialCommands(t *testing.T) {
 	defer third.Shutdown()
 
 	broadcast := test.GenerateRequest([]byte("broadcast"), []types.Partition{partitionA, partitionB, partitionC})
-	res := <-first.Write(broadcast)
-	if !res.Success {
-		t.Errorf("failed broadcasting first message. %#v", res.Failure)
+	err := first.Write(broadcast)
+	if err != nil {
+		t.Errorf("failed broadcasting first message. %#v", err)
 	}
 
 	onlySomePartitions := test.GenerateRequest([]byte("secret"), []types.Partition{partitionB, partitionC})
-	res = <-second.Write(onlySomePartitions)
-	if !res.Success {
-		t.Errorf("failed sending to some partitions. %#v", res.Failure)
+	err = second.Write(onlySomePartitions)
+	if err != nil {
+		t.Errorf("failed sending to some partitions. %#v", err)
 	}
 
 	time.Sleep(time.Second)
@@ -81,18 +81,18 @@ func Test_MulticastMessagesConcurrently(t *testing.T) {
 	sendBroadcast := func() {
 		defer wait.Done()
 		broadcast := test.GenerateRequest([]byte("broadcast"), []types.Partition{partitionA, partitionB, partitionC})
-		res := <-first.Write(broadcast)
-		if !res.Success {
-			t.Errorf("failed broadcasting first message. %#v", res.Failure)
+		err := first.Write(broadcast)
+		if err != nil {
+			t.Errorf("failed broadcasting first message. %#v", err)
 		}
 	}
 
 	sendMulticast := func() {
 		defer wait.Done()
 		onlySomePartitions := test.GenerateRequest([]byte("secret"), []types.Partition{partitionB, partitionC})
-		res := <-second.Write(onlySomePartitions)
-		if !res.Success {
-			t.Errorf("failed sending to some partitions. %#v", res.Failure)
+		err := second.Write(onlySomePartitions)
+		if err != nil {
+			t.Errorf("failed sending to some partitions. %#v", err)
 		}
 	}
 

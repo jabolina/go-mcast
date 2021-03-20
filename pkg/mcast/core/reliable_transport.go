@@ -27,6 +27,9 @@ type ReliableTransport struct {
 	// The finish function to closing the reliableTransport.
 	finish context.CancelFunc
 
+	// Timeout when applying async actions.
+	timeout time.Duration
+
 	partition string
 }
 
@@ -35,6 +38,7 @@ func NewReliableTransport(peer *types.PeerConfiguration, log types.Logger) (Tran
 	conf := relt.DefaultReltConfiguration()
 	conf.Name = string(peer.Name)
 	conf.Exchange = relt.GroupAddress(peer.Partition)
+	conf.DefaultTimeout = peer.ActionTimeout
 	r, err := relt.NewRelt(*conf)
 	if err != nil {
 		return nil, err
@@ -47,6 +51,7 @@ func NewReliableTransport(peer *types.PeerConfiguration, log types.Logger) (Tran
 		partition: string(peer.Partition),
 		context:   ctx,
 		finish:    done,
+		timeout:   peer.ActionTimeout,
 	}
 	return t.waitTransportReady()
 }
@@ -81,7 +86,7 @@ func (r *ReliableTransport) apply(message types.Message, partition types.Partiti
 func (r *ReliableTransport) Broadcast(message types.Message) error {
 	for _, partition := range message.Destination {
 		if err := r.apply(message, partition); err != nil {
-			r.log.Errorf("failed sending %#v. %v", message, err)
+			r.log.Errorf("reliable failed sending %#v. %v", message, err)
 			return err
 		}
 	}
@@ -147,7 +152,7 @@ func (r *ReliableTransport) consume(data []byte, err error) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.context, time.Second)
+	ctx, cancel := context.WithTimeout(r.context, r.timeout)
 	defer cancel()
 	select {
 	case <-ctx.Done():
