@@ -16,6 +16,7 @@ var (
 	ErrStorage              = errors.New("storage cannot be nil")
 	ErrLogger               = errors.New("logger cannot be nil")
 	ErrOracle               = errors.New("oracle cannot be nil")
+	ErrInvalidTimeout       = errors.New("invalid timeout value")
 )
 
 // Holds the peer configuration.
@@ -111,6 +112,10 @@ func (c Configuration) IsValid() error {
 
 	if c.Version < 0 || c.Version > LatestProtocolVersion {
 		return ErrInvalidVersion
+	}
+
+	if c.DefaultTimeout <= 0 {
+		return ErrInvalidTimeout
 	}
 
 	if c.Conflict == nil {

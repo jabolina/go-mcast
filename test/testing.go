@@ -30,9 +30,11 @@ func (t *TestInvoker) Spawn(f func()) {
 	}()
 }
 
-func (t *TestInvoker) Stop() {
+func (t *TestInvoker) Close() error {
 	t.group.Wait()
+	return nil
 }
+
 func NewInvoker() core.Invoker {
 	return &TestInvoker{
 		group: &sync.WaitGroup{},

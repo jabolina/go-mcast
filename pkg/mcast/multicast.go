@@ -56,8 +56,7 @@ func NewGenericMulticast(configuration *types.Configuration) (IMulticast, error)
 }
 
 func (m *Multicast) Close() error {
-	m.peer.Stop()
-	return nil
+	return m.peer.Close()
 }
 
 func (m *Multicast) Write(request types.Request) error {

@@ -88,9 +88,9 @@ func (u *UnreliableTransport) Listen() <-chan types.Message {
 	return u.producer
 }
 
-func (u *UnreliableTransport) Close() {
+func (u *UnreliableTransport) Close() error {
 	u.cancel()
-	u.comm.Close()
+	return u.comm.Close()
 }
 
 func (u *UnreliableTransport) poll() {

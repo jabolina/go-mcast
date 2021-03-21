@@ -114,7 +114,7 @@ func (p *PeerUnity) Shutdown() {
 	for _, peer := range p.Peers {
 		peer.Close()
 	}
-	p.Invoker.Stop()
+	p.Invoker.Close()
 }
 
 // Implements the Unity interface.
