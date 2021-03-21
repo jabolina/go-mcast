@@ -4,17 +4,51 @@ jobs:
     working_directory: ~/repo
     docker:
       - image: circleci/golang:1.14
+
+    # environment variables for the build
+    environment:
+      TEST_REPORT: /tmp/test-results # path to where test results will be saved
+      CI_ENV: 'true'
+
     steps:
       - checkout
+      - run: mkdir -p $TEST_REPORT # create the test results directory
       - restore_cache:
           keys:
             - go-mod-v4-{{ checksum "go.sum" }}
       - run:
-          name: Start etcd and make
+          name: Install and start etcd server
           command: |
             ETCD_VER=$(curl --silent https://api.github.com/repos/etcd-io/etcd/releases/latest | grep "tag_name" | cut -d ' ' -f4 | awk -F'"' '$0=$2')
             curl -sL https://storage.googleapis.com/etcd/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz -o ./etcd.tar.gz
             mkdir etcd && tar xzvf etcd.tar.gz -C etcd --strip-components=1
-            etcd/etcd > /dev/null &
-            sleep 30
-            make ci
+            etcd/etcd
+          background: true
+
+      - run:
+          name: Install dependecies
+          command: make deps dep-linter lint
+
+      - run:
+          name: Run tests
+          command: |
+            GOTRACEBACK=all gotestsum --junitfile $TEST_REPORT/tests.xml -- -count=1 -timeout=40s -race ./test/...
+            GOTRACEBACK=all gotestsum --junitfile $TEST_REPORT/tests-batch.xml -- -count=1 -timeout=40s -tags batchtest -race ./test/...
+
+      - run:
+          name: Fuzz testing
+          command: |
+            GOTRACEBACK=all gotestsum --junitfile $TEST_REPORT/fuzz-tests.xml -- -count=1 -timeout=5m -race ./fuzzy/...
+            GOTRACEBACK=all gotestsum --junitfile $TEST_REPORT/fuzz-tests-batch.xml -- -count=1 -timeout=5m -tags batchtest -race ./fuzzy/...
+
+      - save_cache:
+          key: go-mod-v4-{{ checksum "go.sum" }}
+          paths:
+            - "/go/pkg/mod"
+
+      - store_artifacts: # upload test summary for display in Artifacts
+          path: /tmp/test-results
+          destination: raw-test-output
+
+      - store_test_results: # upload test results for display in Test Summary
+          path: /tmp/test-results

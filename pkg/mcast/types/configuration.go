@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"time"
 )
 
 var (
@@ -44,6 +45,12 @@ type PeerConfiguration struct {
 
 	// Application function to cancel the context.
 	Cancel context.CancelFunc
+
+	// Listener for commits.
+	Commit chan<- Response
+
+	// When executing an action we can have a timeout.
+	ActionTimeout time.Duration
 }
 
 // The configuration for using the atomic multicast.
@@ -63,6 +70,9 @@ type Configuration struct {
 
 	// Which version of the protocol will be used.
 	Version uint
+
+	// Timeout to be applied on actions.
+	DefaultTimeout time.Duration
 
 	// The conflict relationship that will be used
 	// to order the requests for delivery.

@@ -22,6 +22,11 @@ jobs:
     - name: Check out code into the Go module directory
       uses: actions/checkout@v2
 
+    - name: Setup gotestsum
+      uses: autero1/action-gotestsum@v1.0.0
+      with:
+        gotestsum_version: 0.4.2
+
     - name: Setup etcd server and make
       run: |
         ETCD_VER=$(curl --silent https://api.github.com/repos/etcd-io/etcd/releases/latest | grep "tag_name" | cut -d ' ' -f4 | awk -F'"' '$0=$2')
@@ -29,4 +34,4 @@ jobs:
         mkdir etcd && tar xzvf etcd.tar.gz -C etcd --strip-components=1
         etcd/etcd > /dev/null &
         sleep 30
-        make ci
+        CI_ENV=on make gh-ci

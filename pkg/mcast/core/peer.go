@@ -5,7 +5,6 @@ import (
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"sync"
-	"time"
 )
 
 // When sending a message the peer must choose
@@ -23,18 +22,6 @@ const (
 	outer
 )
 
-// An observer that waits until the issued request
-// is committed by one of the peers.
-// When the response is committed it will be sent
-// back through the observer channel.
-type observer struct {
-	// Request UID.
-	uid types.UID
-
-	// Channel to notify the response back.
-	notify chan types.Response
-}
-
 type deliverRequest struct {
 	message types.Message
 	generic bool
@@ -47,7 +34,7 @@ type PartitionPeer interface {
 	// This method does not work in the request-response model
 	// so after the message is committed onto the unity
 	// a response will be sent back through the channel.
-	Command(message types.Message) <-chan types.Response
+	Command(message types.Message) error
 
 	// A fast read directly into the storage.
 	// Since all peers will be consistent, the read
@@ -71,10 +58,6 @@ type Peer struct {
 
 	// Used to spawn and control all go routines.
 	invoker Invoker
-
-	// Holds the observers that are waiting for a response
-	// from the issued request.
-	observers map[types.UID]observer
 
 	// Configuration for the peer.
 	configuration *types.PeerConfiguration
@@ -151,7 +134,6 @@ func NewPeer(configuration *types.PeerConfiguration, oracle types.Oracle, logger
 
 	p := &Peer{
 		mutex:               &sync.Mutex{},
-		observers:           make(map[types.UID]observer),
 		invoker:             InvokerInstance(),
 		configuration:       configuration,
 		reliableTransport:   reliableTransport,
@@ -175,34 +157,8 @@ func NewPeer(configuration *types.PeerConfiguration, oracle types.Oracle, logger
 }
 
 // Implements the PartitionPeer interface.
-func (p *Peer) Command(message types.Message) <-chan types.Response {
-	res := make(chan types.Response, 1)
-	apply := func() {
-		err := p.reliableTransport.Broadcast(message)
-		if err != nil {
-			finalResponse := types.Response{
-				Success: false,
-				Data:    []types.DataHolder{message.Content},
-				Failure: err,
-			}
-
-			select {
-			case res <- finalResponse:
-			case <-time.After(100 * time.Millisecond):
-			}
-			return
-		}
-
-		p.mutex.Lock()
-		defer p.mutex.Unlock()
-		obs := observer{
-			uid:    message.Identifier,
-			notify: res,
-		}
-		p.observers[message.Identifier] = obs
-	}
-	p.invoker.Spawn(apply)
-	return res
+func (p *Peer) Command(message types.Message) error {
+	return p.reliableTransport.Broadcast(message)
 }
 
 // Implements the PartitionPeer interface.
@@ -230,10 +186,7 @@ func (p *Peer) FastRead() types.Response {
 
 // Implements the PartitionPeer interface.
 func (p *Peer) Stop() {
-	defer func() {
-		close(p.updated)
-		close(p.delivering)
-	}()
+	defer close(p.updated)
 	p.finish()
 	p.reliableTransport.Close()
 	p.unreliableTransport.Close()
@@ -409,15 +362,14 @@ func (p *Peer) send(message types.Message, t types.MessageType, emission emissio
 	}
 
 	for _, partition := range destination {
-		tries := 0
-		for err := p.dispatch(message, partition, emission); err != nil && tries < 5; tries++ {
-			p.logger.Errorf("error unicast %s to partition %s. %v", message.Identifier, partition, err)
+		if err := p.dispatch(message, partition, emission); err != nil {
+			p.logger.Errorf("error dispatch. %v. dest: %s -> %#v", err, partition, message)
 		}
 	}
 }
 
 func (p *Peer) dispatch(message types.Message, partition types.Partition, emission emission) error {
-	if emission == inner {
+	if emission == outer {
 		return p.unreliableTransport.Unicast(message, partition)
 	}
 	return p.reliableTransport.Unicast(message, partition)
@@ -466,7 +418,12 @@ func (p *Peer) publishToReprocess(message types.Message) {
 func (p *Peer) doDeliver() {
 	for req := range p.delivering {
 		m, isGenericDeliver := req.message, req.generic
-		res := p.deliver.Commit(m, isGenericDeliver)
+		select {
+		case p.configuration.Commit <- p.deliver.Commit(m, isGenericDeliver):
+			break
+		default:
+			break
+		}
 
 		p.invoker.Spawn(func() {
 			p.received.Remove(m.Identifier)
@@ -474,23 +431,6 @@ func (p *Peer) doDeliver() {
 				p.rqueue.Dequeue(m)
 			} else {
 				p.rqueue.Pop()
-			}
-		})
-
-		p.invoker.Spawn(func() {
-			p.mutex.Lock()
-			defer p.mutex.Unlock()
-
-			obs, ok := p.observers[m.Identifier]
-			if ok {
-				defer close(obs.notify)
-				select {
-				case <-p.context.Done():
-					return
-				case obs.notify <- res:
-					break
-				}
-				delete(p.observers, obs.uid)
 			}
 		})
 	}

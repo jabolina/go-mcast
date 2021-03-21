@@ -3,7 +3,7 @@ module github.com/jabolina/go-mcast
 go 1.14
 
 require (
-	github.com/digital-comrades/proletariat v1.0.1
+	github.com/digital-comrades/proletariat v1.0.3
 	github.com/jabolina/relt v1.0.0
 	github.com/prometheus/common v0.15.0
 	go.uber.org/goleak v1.1.10

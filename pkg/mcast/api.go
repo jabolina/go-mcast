@@ -3,6 +3,7 @@ package mcast
 import (
 	"github.com/jabolina/go-mcast/pkg/mcast/definition"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
+	"time"
 )
 
 // Creates a new multicast instance for the partition with the
@@ -21,12 +22,13 @@ func NewMulticastConfigured(configuration *types.Configuration) (IMulticast, err
 // relationship for the messages.
 func DefaultConfiguration(name types.Partition) *types.Configuration {
 	return &types.Configuration{
-		Name:      types.PeerName(name),
-		Partition: name,
-		Version:   types.LatestProtocolVersion,
-		Conflict:  &definition.AlwaysConflict{},
-		Storage:   definition.NewDefaultStorage(),
-		Logger:    definition.NewDefaultLogger(),
+		Name:           types.PeerName(name),
+		Partition:      name,
+		Version:        types.LatestProtocolVersion,
+		Conflict:       &definition.AlwaysConflict{},
+		Storage:        definition.NewDefaultStorage(),
+		Logger:         definition.NewDefaultLogger(),
+		DefaultTimeout: time.Second,
 	}
 }
 

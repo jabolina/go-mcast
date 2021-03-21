@@ -44,9 +44,10 @@ func Test_TransportActAsAUnity(t *testing.T) {
 		var history []*MessageHist
 		for i := 0; i < size; i++ {
 			cfg := &types.PeerConfiguration{
-				Name:      types.PeerName(fmt.Sprintf("%s-%d", partition, i)),
-				Partition: types.Partition(partition),
-				Ctx:       ctx,
+				Name:          types.PeerName(fmt.Sprintf("%s-%d", partition, i)),
+				Partition:     types.Partition(partition),
+				Ctx:           ctx,
+				ActionTimeout: time.Second,
 			}
 			trans, err := core.NewReliableTransport(cfg, definition.NewDefaultLogger())
 			if err != nil {
