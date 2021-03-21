@@ -104,11 +104,9 @@ func (r *ReliableTransport) Listen() <-chan types.Message {
 }
 
 // ReliableTransport implements Transport interface.
-func (r *ReliableTransport) Close() {
+func (r *ReliableTransport) Close() error {
 	r.finish()
-	if err := r.relt.Close(); err != nil {
-		r.log.Errorf("failed stopping reliableTransport. %#v", err)
-	}
+	return r.relt.Close()
 }
 
 // This method will keep polling until

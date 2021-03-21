@@ -2,11 +2,14 @@ package core
 
 import (
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
+	"io"
 )
 
 // The reliableTransport interface providing the communication
 // primitives by the protocol.
 type Transport interface {
+	io.Closer
+
 	// Reliably deliver the message to all correct processes
 	// in the same order.
 	Broadcast(message types.Message) error
@@ -19,7 +22,4 @@ type Transport interface {
 
 	// Listen for messages that arrives on the reliableTransport.
 	Listen() <-chan types.Message
-
-	// Close the reliableTransport for sending and receiving messages.
-	Close()
 }

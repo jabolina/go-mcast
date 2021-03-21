@@ -1,6 +1,9 @@
 package core
 
-import "sync"
+import (
+	"io"
+	"sync"
+)
 
 var (
 	// Ensure thread safety while creating a new Invoker.
@@ -17,13 +20,11 @@ var (
 // that any routine that is not controller careful will
 // be known when the application finishes.
 type Invoker interface {
+	io.Closer
+
 	// Spawn a new goroutine and manage through the SyncGroup.
 	// This is used to ensure that go routines do not leak.
 	Spawn(func())
-
-	// Stop the invoker, after this any invoked go routine
-	// will panic.
-	Stop()
 }
 
 // A singleton struct that implements the Invoker interface.
@@ -75,9 +76,10 @@ func (c *SingletonInvoker) Spawn(f func()) {
 // Blocks while waiting for go routines to stop.
 // This will priorityQueue the working mode to off, so after
 // this is called any spawned go routine will panic.
-func (c *SingletonInvoker) Stop() {
+func (c *SingletonInvoker) Close() error {
 	c.mutex.Lock()
 	c.working = false
 	c.mutex.Unlock()
 	c.group.Wait()
+	return nil
 }

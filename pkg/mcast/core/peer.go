@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
+	"io"
 	"sync"
 )
 
@@ -29,6 +30,8 @@ type deliverRequest struct {
 
 // Interface that a single peer must implement.
 type PartitionPeer interface {
+	io.Closer
+
 	// Issues a request to the Generic Multicast protocol.
 	//
 	// This method does not work in the request-response model
@@ -43,9 +46,6 @@ type PartitionPeer interface {
 	// See that if a write was issued, is not guaranteed
 	// that the read will be executed after the write.
 	FastRead() types.Response
-
-	// Stop the peer.
-	Stop()
 }
 
 // This structure defines a single peer for the protocol.
@@ -185,11 +185,13 @@ func (p *Peer) FastRead() types.Response {
 }
 
 // Implements the PartitionPeer interface.
-func (p *Peer) Stop() {
+func (p *Peer) Close() error {
 	defer close(p.updated)
 	p.finish()
-	p.reliableTransport.Close()
-	p.unreliableTransport.Close()
+	if err := p.reliableTransport.Close(); err != nil {
+		return err
+	}
+	return p.unreliableTransport.Close()
 }
 
 // This method will keep polling as long as the peer
