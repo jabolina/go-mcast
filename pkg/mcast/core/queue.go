@@ -94,7 +94,7 @@ func NewQueue(ctx context.Context, conflict types.ConflictRelationship, deliver 
 		ctx:        ctx,
 		mutex:      &sync.Mutex{},
 		conflict:   conflict,
-		applied:    NewTtlCache(ctx),
+		applied:    NewTtlCache(),
 		headChange: headChannel,
 		deliver:    deliver,
 		priorityQueue: NewPriorityQueue(headChannel, func(m types.Message) bool {
