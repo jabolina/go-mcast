@@ -9,6 +9,7 @@ jobs:
     environment:
       TEST_REPORT: /tmp/test-results # path to where test results will be saved
       CI_ENV: 'true'
+      ETCD_VER: 'v3.4.14'
 
     steps:
       - checkout
@@ -19,7 +20,6 @@ jobs:
       - run:
           name: Install and start etcd server
           command: |
-            ETCD_VER=$(curl --silent https://api.github.com/repos/etcd-io/etcd/releases/latest | grep "tag_name" | cut -d ' ' -f4 | awk -F'"' '$0=$2')
             curl -sL https://storage.googleapis.com/etcd/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz -o ./etcd.tar.gz
             mkdir etcd && tar xzvf etcd.tar.gz -C etcd --strip-components=1
             etcd/etcd
