@@ -3,6 +3,7 @@ package test
 import (
 	"bytes"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
+	"github.com/jabolina/go-mcast/test/util"
 	"testing"
 	"time"
 )
@@ -14,8 +15,8 @@ import (
 // Then a response will be queried back from the unity state machine.
 func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 	ports := []int{32200}
-	partitionName := ProperPartitionName("single.unity", ports)
-	unity := CreateUnity(partitionName, ports, t)
+	partitionName := util.ProperPartitionName("single.unity", ports)
+	unity := util.CreateUnity(partitionName, ports, t)
 	defer unity.Shutdown()
 	value := []byte("test")
 	write := types.Request{
@@ -54,10 +55,10 @@ func TestProtocol_GMCastMessageSingleUnitySingleProcess(t *testing.T) {
 func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 	portFirst := []int{32020}
 	portSnd := []int{32030}
-	partitionOne := ProperPartitionName("single-unity-one", portFirst)
-	partitionTwo := ProperPartitionName("single-unity-two", portSnd)
-	unityOne := CreateUnity(partitionOne, portFirst, t)
-	unityTwo := CreateUnity(partitionTwo, portSnd, t)
+	partitionOne := util.ProperPartitionName("single-unity-one", portFirst)
+	partitionTwo := util.ProperPartitionName("single-unity-two", portSnd)
+	unityOne := util.CreateUnity(partitionOne, portFirst, t)
+	unityTwo := util.CreateUnity(partitionTwo, portSnd, t)
 	defer unityOne.Shutdown()
 	defer unityTwo.Shutdown()
 	value := []byte("test")
@@ -103,10 +104,10 @@ func TestProtocol_GMCastMessageTwoPartitions(t *testing.T) {
 func TestProtocol_TwoPartitionsSingleParticipant(t *testing.T) {
 	portFst := []int{32000}
 	portSnd := []int{32010}
-	partitionOne := ProperPartitionName("a-single-unity-one", portFst)
-	partitionTwo := ProperPartitionName("b-single-unity-two", portSnd)
-	unityOne := CreateUnity(partitionOne, portFst, t)
-	unityTwo := CreateUnity(partitionTwo, portSnd, t)
+	partitionOne := util.ProperPartitionName("a-single-unity-one", portFst)
+	partitionTwo := util.ProperPartitionName("b-single-unity-two", portSnd)
+	unityOne := util.CreateUnity(partitionOne, portFst, t)
+	unityTwo := util.CreateUnity(partitionTwo, portSnd, t)
 	defer func() {
 		unityOne.Shutdown()
 		unityTwo.Shutdown()

@@ -1,4 +1,4 @@
-package test
+package util
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 )
 
-// The unity interface, responsible for interacting
+// Unity interface is responsible for interacting
 // with all the peers.
 // The unity is equivalent as a partition and holds a
 // group of peers, each one a different goroutine. When
@@ -16,7 +16,7 @@ import (
 // issued through the unity, since all peers acts
 // as a single unity.
 type Unity interface {
-	// Apply a request to the protocol.
+	// Write Apply a request to the protocol.
 	// This does not work in the request-response model,
 	// once a request is sent the method will return right
 	// away, but this does not mean that the value is already
@@ -27,10 +27,10 @@ type Unity interface {
 	// in one of the participants.
 	Write(request types.Request) error
 
-	// Query a value from the unity.
+	// Read Query a value from the unity.
 	Read() types.Response
 
-	// Start the listener.
+	// Listen Start the listener.
 	Listen() <-chan types.Response
 
 	// Shutdown the unity.
@@ -41,7 +41,7 @@ type Unity interface {
 	WhoAmI() types.Partition
 }
 
-// Concrete implementation of the Unity interface.
+// PeerUnity is the concrete implementation of the Unity interface.
 type PeerUnity struct {
 	// Hold all peers.
 	Peers []mcast.IMulticast
@@ -108,7 +108,7 @@ func (p *PeerUnity) Listen() <-chan types.Response {
 	return peer.Listen()
 }
 
-// Implements the Unity interface.
+// Shutdown Implements the Unity interface.
 func (p *PeerUnity) Shutdown() {
 	p.Finish()
 	for _, peer := range p.Peers {
@@ -117,7 +117,7 @@ func (p *PeerUnity) Shutdown() {
 	p.Invoker.Close()
 }
 
-// Implements the Unity interface.
+// WhoAmI Implements the Unity interface.
 func (p *PeerUnity) WhoAmI() types.Partition {
 	return p.Configuration.Partition
 }

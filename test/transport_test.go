@@ -7,6 +7,7 @@ import (
 	"github.com/jabolina/go-mcast/pkg/mcast/definition"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
+	"github.com/jabolina/go-mcast/test/util"
 	"go.uber.org/goleak"
 	"sync"
 	"testing"
@@ -22,7 +23,7 @@ func Test_TransportActAsAUnity(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	listenersGroup := &sync.WaitGroup{}
 	writersGroup := &sync.WaitGroup{}
-	initializeReplica := func(trans core.Transport, h *MessageHist) {
+	initializeReplica := func(trans core.Transport, h *util.MessageHist) {
 		listenChan := trans.Listen()
 		go func() {
 			defer listenersGroup.Done()
@@ -32,16 +33,16 @@ func Test_TransportActAsAUnity(t *testing.T) {
 					if m.Content.Content == nil || len(m.Content.Content) == 0 {
 						t.Errorf("wrong message data")
 					}
-					h.insert(string(m.Content.Content))
+					h.Insert(string(m.Content.Content))
 				case <-ctx.Done():
 					return
 				}
 			}
 		}()
 	}
-	initializeCluster := func(size int) ([]core.Transport, []*MessageHist) {
+	initializeCluster := func(size int) ([]core.Transport, []*util.MessageHist) {
 		var replicas []core.Transport
-		var history []*MessageHist
+		var history []*util.MessageHist
 		for i := 0; i < size; i++ {
 			cfg := &types.PeerConfiguration{
 				Name:          types.PeerName(fmt.Sprintf("%s-%d", partition, i)),
@@ -53,7 +54,7 @@ func Test_TransportActAsAUnity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed creating transport. %#v", err)
 			}
-			h := NewHistory()
+			h := util.NewHistory()
 			initializeReplica(trans, h)
 
 			replicas = append(replicas, trans)
@@ -90,12 +91,12 @@ func Test_TransportActAsAUnity(t *testing.T) {
 	listenersGroup.Wait()
 
 	truth := history[0]
-	if truth.size() != testSize {
-		t.Errorf("should have size %d, found %d", testSize, truth.size())
+	if truth.Size() != testSize {
+		t.Errorf("should have size %d, found %d", testSize, truth.Size())
 	}
 
 	for i, messageHist := range history {
-		diff := truth.compare(*messageHist)
+		diff := truth.Compare(*messageHist)
 		if diff != 0 {
 			t.Errorf("history differ at %d with %d different commands", i, diff)
 		}
