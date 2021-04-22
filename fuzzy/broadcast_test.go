@@ -1,7 +1,7 @@
 package fuzzy
 
 import (
-	"github.com/jabolina/go-mcast/test"
+	"github.com/jabolina/go-mcast/test/util"
 	"go.uber.org/goleak"
 	"log"
 	"sync"
@@ -20,11 +20,11 @@ func Test_BroadcastSequentialCommands(t *testing.T) {
 	partition2 := []int{24003, 24004, 24005}
 	partition3 := []int{24006, 24007, 24008}
 	ports := [][]int{partition1, partition2, partition3}
-	cluster := test.CreateCluster("alphabet", ports, t)
+	cluster := util.CreateCluster("alphabet", ports, t)
 	defer func() {
-		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
+		if !util.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
 			t.Error("failed shutdown cluster")
-			test.PrintStackTrace(t)
+			util.PrintStackTrace(t)
 		}
 	}()
 
@@ -39,7 +39,7 @@ func Test_BroadcastSequentialCommands(t *testing.T) {
 				if !res.Success {
 					t.Errorf("response with error %s. %#v", res.Failure.Error(), res.Data)
 				}
-			case <-time.After(test.DefaultTestTimeout):
+			case <-time.After(util.DefaultTestTimeout):
 				t.Log("stop listening unity.")
 				return
 			}
@@ -47,9 +47,9 @@ func Test_BroadcastSequentialCommands(t *testing.T) {
 	}
 
 	go listener()
-	for _, letter := range test.Alphabet {
+	for _, letter := range util.Alphabet {
 		log.Printf("************************** sending %s **************************", letter)
-		req := test.GenerateRequest([]byte(letter), cluster.Names)
+		req := util.GenerateRequest([]byte(letter), cluster.Names)
 		if err := cluster.Next().Write(req); err != nil {
 			t.Errorf("failed writting request %v", err)
 		}
@@ -65,11 +65,11 @@ func Test_BroadcastConcurrentCommands(t *testing.T) {
 	partition2 := []int{20003, 20004, 20005}
 	partition3 := []int{20006, 20007, 20008}
 	ports := [][]int{partition1, partition2, partition3}
-	cluster := test.CreateCluster("concurrent", ports, t)
+	cluster := util.CreateCluster("concurrent", ports, t)
 	defer func() {
-		if !test.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
+		if !util.WaitThisOrTimeout(cluster.Off, 30*time.Second) {
 			t.Error("failed shutdown cluster")
-			test.PrintStackTrace(t)
+			util.PrintStackTrace(t)
 		}
 	}()
 
@@ -84,7 +84,7 @@ func Test_BroadcastConcurrentCommands(t *testing.T) {
 				if !res.Success {
 					t.Errorf("response with error %s. %#v", res.Failure.Error(), res.Data)
 				}
-			case <-time.After(test.DefaultTestTimeout):
+			case <-time.After(util.DefaultTestTimeout):
 				t.Log("stop listening unity.")
 				return
 			}
@@ -95,19 +95,19 @@ func Test_BroadcastConcurrentCommands(t *testing.T) {
 	write := func(idx int, val string) {
 		defer wg.Done()
 		log.Printf("************************** sending %s **************************", val)
-		req := test.GenerateRequest([]byte(val), cluster.Names)
+		req := util.GenerateRequest([]byte(val), cluster.Names)
 		if err := cluster.Next().Write(req); err != nil {
 			t.Errorf("failed writting request %v", err)
 		}
 	}
 
-	sample := test.Alphabet
+	sample := util.Alphabet
 	wg.Add(len(sample))
 	for i, content := range sample {
 		go write(i, content)
 	}
 
-	if !test.WaitThisOrTimeout(wg.Wait, 30*time.Second) {
+	if !util.WaitThisOrTimeout(wg.Wait, 30*time.Second) {
 		t.Errorf("not finished all after 30 seconds!")
 	}
 	cluster.DoesAllClusterMatch()

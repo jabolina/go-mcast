@@ -1,14 +1,12 @@
-package test
+package util
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast"
 	"github.com/jabolina/go-mcast/pkg/mcast/core"
 	"github.com/jabolina/go-mcast/pkg/mcast/definition"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
-	"github.com/prometheus/common/log"
 	"os"
 	"runtime"
 	"sync"
@@ -123,52 +121,6 @@ func (c *UnityCluster) Next() Unity {
 	}
 
 	return c.Unities[c.index]
-}
-
-func DoWeMatch(expected []types.DataHolder, unities []Unity, t *testing.T) {
-	for _, unity := range unities {
-		res := unity.Read()
-
-		if !res.Success {
-			t.Errorf("reading partition failed. %v", res.Failure)
-			continue
-		}
-		outputValues(res.Data, string(unity.WhoAmI()))
-
-		toVerify := onlyOrdered(res.Data)
-		for i, holder := range expected {
-			if len(toVerify)-1 < i {
-				t.Errorf("Content differ cmd %d for unity %s, expected %#v, found nothing", i, unity.WhoAmI(), holder)
-				continue
-			}
-
-			actual := toVerify[i]
-			if !bytes.Equal(holder.Content, actual.Content) {
-				t.Errorf("Content differ cmd %d for unity %s, expected %#v, found %#v", i, unity.WhoAmI(), holder, actual)
-			}
-		}
-	}
-}
-
-func (c UnityCluster) DoesClusterMatchTo(expected []types.DataHolder) {
-	DoWeMatch(expected, c.Unities, c.T)
-}
-
-func onlyOrdered(expected []types.DataHolder) []types.DataHolder {
-	var notGeneric []types.DataHolder
-	for _, holder := range expected {
-		if holder.Extensions == nil {
-			notGeneric = append(notGeneric, holder)
-		}
-	}
-	return notGeneric
-}
-
-func outputValues(values []types.DataHolder, owner string) {
-	log.Infof("--------------------%s-------------------------", owner)
-	for _, value := range values {
-		log.Infof("%s - %d - %v\n", value.Meta.Identifier, value.Meta.Timestamp, value.Extensions != nil)
-	}
 }
 
 func (c UnityCluster) DoesAllClusterMatch() {

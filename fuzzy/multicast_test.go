@@ -1,60 +1,19 @@
 package fuzzy
 
 import (
+	"bytes"
+	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
-	"github.com/jabolina/go-mcast/test"
+	"github.com/jabolina/go-mcast/test/util"
 	"go.uber.org/goleak"
 	"sync"
 	"testing"
 	"time"
 )
 
-// Will try send commands sequentially to different partitions.
-// This will verify if the commands are still delivered in the same
-// order across different partitions.
-func Test_MulticastSequentialCommands(t *testing.T) {
-	defer goleak.VerifyNone(t)
-
-	partition1 := []int{25000, 25001, 25002}
-	partition2 := []int{25003, 25004, 25005}
-	partition3 := []int{25006, 25007, 25008}
-
-	partitionA := test.ProperPartitionName("mcast-sync-a", partition1)
-	partitionB := test.ProperPartitionName("mcast-sync-b", partition2)
-	partitionC := test.ProperPartitionName("mcast-sync-c", partition3)
-
-	first := test.CreateUnity(partitionA, partition1, t)
-	second := test.CreateUnity(partitionB, partition2, t)
-	third := test.CreateUnity(partitionC, partition3, t)
-
-	defer first.Shutdown()
-	defer second.Shutdown()
-	defer third.Shutdown()
-
-	broadcast := test.GenerateRequest([]byte("broadcast"), []types.Partition{partitionA, partitionB, partitionC})
-	err := first.Write(broadcast)
-	if err != nil {
-		t.Errorf("failed broadcasting first message. %#v", err)
-	}
-
-	onlySomePartitions := test.GenerateRequest([]byte("secret"), []types.Partition{partitionB, partitionC})
-	err = second.Write(onlySomePartitions)
-	if err != nil {
-		t.Errorf("failed sending to some partitions. %#v", err)
-	}
-
-	time.Sleep(time.Second)
-	truth := second.Read()
-	if !truth.Success {
-		t.Errorf("failed reading values. %#v", truth.Failure)
-	}
-
-	test.DoWeMatch(truth.Data, []test.Unity{second, third}, t)
-}
-
 // Will send commands to different partitions concurrently.
 // After sending commands concurrently, commands should be accepted in
-// the same order.
+// the same order across partitions.
 func Test_MulticastMessagesConcurrently(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
@@ -62,49 +21,63 @@ func Test_MulticastMessagesConcurrently(t *testing.T) {
 	partition2 := []int{26003, 26004, 26005}
 	partition3 := []int{26006, 26007, 26008}
 
-	partitionA := test.ProperPartitionName("mcast-async-a", partition1)
-	partitionB := test.ProperPartitionName("mcast-async-b", partition2)
-	partitionC := test.ProperPartitionName("mcast-async-c", partition3)
+	partitionA := util.ProperPartitionName("mcast-async-a", partition1)
+	partitionB := util.ProperPartitionName("mcast-async-b", partition2)
+	partitionC := util.ProperPartitionName("mcast-async-c", partition3)
 
-	first := test.CreateUnity(partitionA, partition1, t)
-	second := test.CreateUnity(partitionB, partition2, t)
-	third := test.CreateUnity(partitionC, partition3, t)
+	first := util.CreateUnity(partitionA, partition1, t)
+	second := util.CreateUnity(partitionB, partition2, t)
+	third := util.CreateUnity(partitionC, partition3, t)
 
-	wait := &sync.WaitGroup{}
+	sampleSize := 10
+
+	wg := &sync.WaitGroup{}
 
 	defer first.Shutdown()
 	defer second.Shutdown()
 	defer third.Shutdown()
 
-	wait.Add(2)
+	ab := []byte("AB")
+	bc := []byte("BC")
+	ac := []byte("AC")
 
-	sendBroadcast := func() {
-		defer wait.Done()
-		broadcast := test.GenerateRequest([]byte("broadcast"), []types.Partition{partitionA, partitionB, partitionC})
-		err := first.Write(broadcast)
+	sendBroadcast := func(unity util.Unity, extra []byte, partitions []types.Partition) {
+		defer wg.Done()
+		broadcast := util.GenerateRequest([]byte(helper.GenerateUID()), partitions)
+		broadcast.Extra = extra
+		err := unity.Write(broadcast)
 		if err != nil {
-			t.Errorf("failed broadcasting first message. %#v", err)
+			t.Errorf("failed sending message to %v. %#v", partitions, err)
 		}
 	}
 
-	sendMulticast := func() {
-		defer wait.Done()
-		onlySomePartitions := test.GenerateRequest([]byte("secret"), []types.Partition{partitionB, partitionC})
-		err := second.Write(onlySomePartitions)
-		if err != nil {
-			t.Errorf("failed sending to some partitions. %#v", err)
-		}
+	wg.Add(sampleSize)
+	for i := 0; i < sampleSize; i++ {
+		go sendBroadcast(first, ab, []types.Partition{partitionA, partitionB})
 	}
 
-	go sendBroadcast()
-	go sendMulticast()
-
-	wait.Wait()
-	time.Sleep(time.Second)
-	truth := second.Read()
-	if !truth.Success {
-		t.Errorf("failed reading values. %#v", truth.Failure)
+	wg.Add(sampleSize)
+	for i := 0; i < sampleSize; i++ {
+		go sendBroadcast(second, bc, []types.Partition{partitionB, partitionC})
 	}
 
-	test.DoWeMatch(truth.Data, []test.Unity{second, third}, t)
+	wg.Add(sampleSize)
+	for i := 0; i < sampleSize; i++ {
+		go sendBroadcast(third, ac, []types.Partition{partitionA, partitionC})
+	}
+
+	wg.Wait()
+	time.Sleep(util.DefaultTestTimeout)
+
+	util.CompareOutputs(t, []util.Unity{first, second}, func(data types.DataHolder) bool {
+		return bytes.Equal(data.Extensions, ab)
+	})
+
+	util.CompareOutputs(t, []util.Unity{second, third}, func(data types.DataHolder) bool {
+		return bytes.Equal(data.Extensions, bc)
+	})
+
+	util.CompareOutputs(t, []util.Unity{first, third}, func(data types.DataHolder) bool {
+		return bytes.Equal(data.Extensions, ac)
+	})
 }

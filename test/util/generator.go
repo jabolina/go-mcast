@@ -1,4 +1,4 @@
-package test
+package util
 
 import (
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"

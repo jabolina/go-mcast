@@ -1,4 +1,4 @@
-package test
+package util
 
 import "sync"
 
@@ -8,21 +8,21 @@ type MessageHist struct {
 	data    map[string]bool
 }
 
-func (m *MessageHist) insert(message string) {
+func (m *MessageHist) Insert(message string) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	m.history = append(m.history, message)
 	m.data[message] = true
 }
 
-func (m *MessageHist) contains(message string) bool {
+func (m *MessageHist) Contains(message string) bool {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	_, ok := m.data[message]
 	return ok
 }
 
-func (m *MessageHist) values() []string {
+func (m *MessageHist) Values() []string {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	var copied []string
@@ -30,13 +30,13 @@ func (m *MessageHist) values() []string {
 	return copied
 }
 
-func (m *MessageHist) size() int {
+func (m *MessageHist) Size() int {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	return len(m.history)
 }
 
-func (m *MessageHist) compare(other MessageHist) int {
+func (m *MessageHist) Compare(other MessageHist) int {
 	// if both objects hold the same mutex a deadlock will be created.
 	if m.mutex == other.mutex {
 		return 0
@@ -45,7 +45,7 @@ func (m *MessageHist) compare(other MessageHist) int {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	different := 0
-	for i, s := range other.values() {
+	for i, s := range other.Values() {
 		if len(m.history)-1 < i {
 			different += 1
 			continue
