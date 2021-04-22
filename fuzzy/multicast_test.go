@@ -67,7 +67,7 @@ func Test_MulticastMessagesConcurrently(t *testing.T) {
 	}
 
 	wg.Wait()
-	time.Sleep(time.Second)
+	time.Sleep(util.DefaultTestTimeout)
 
 	util.CompareOutputs(t, []util.Unity{first, second}, func(data types.DataHolder) bool {
 		return bytes.Equal(data.Extensions, ab)

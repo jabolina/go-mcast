@@ -94,7 +94,7 @@ func Test_ShouldMaintainConsistencyWhenAsyncGeneric(t *testing.T) {
 				if !res.Success {
 					t.Errorf("response with error %s. %#v", res.Failure.Error(), res.Data)
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(util.DefaultTestTimeout):
 				t.Log("stop listening unity.")
 				return
 			}
