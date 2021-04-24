@@ -9,6 +9,7 @@ import (
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"github.com/jabolina/go-mcast/test/util"
 	"go.uber.org/goleak"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 func Test_TransportActAsAUnity(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
+	_, isCi := os.LookupEnv("CI_ENV")
 	partition := "transport-unity-" + helper.GenerateUID()
 	testSize := 100
 	clusterSize := 30
@@ -49,6 +51,10 @@ func Test_TransportActAsAUnity(t *testing.T) {
 				Partition:     types.Partition(partition),
 				Ctx:           ctx,
 				ActionTimeout: time.Second,
+			}
+			if isCi {
+				t.Logf("CI environment. Timeout is 20 seconds!")
+				cfg.ActionTimeout = 20 * time.Second
 			}
 			trans, err := core.NewReliableTransport(cfg, definition.NewDefaultLogger())
 			if err != nil {

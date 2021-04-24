@@ -85,6 +85,7 @@ func Test_AgreementAndIntegrityProperty(t *testing.T) {
 	first := util.CreateUnity(partitionA, partition1, t)
 	second := util.CreateUnity(partitionB, partition2, t)
 	third := util.CreateUnity(partitionC, partition3, t)
+	message := []byte(helper.GenerateUID())
 
 	defer first.Shutdown()
 	defer second.Shutdown()
@@ -95,7 +96,7 @@ func Test_AgreementAndIntegrityProperty(t *testing.T) {
 	wg.Add(1)
 	sendBroadcast := func(unity util.Unity) {
 		defer wg.Done()
-		broadcast := util.GenerateRequest([]byte(helper.GenerateUID()), partitions)
+		broadcast := util.GenerateRequest(message, partitions)
 		err := unity.Write(broadcast)
 		if err != nil {
 			t.Errorf("failed sending message to %v. %#v", partitions, err)
@@ -109,6 +110,19 @@ func Test_AgreementAndIntegrityProperty(t *testing.T) {
 	util.CompareOutputs(t, []util.Unity{first, second, third}, func(data types.DataHolder) bool {
 		return true
 	})
+
+	fRead := first.Read()
+	if !fRead.Success {
+		t.Errorf("failed reading first partition. %#v", fRead.Failure)
+	}
+
+	if len(fRead.Data) > 1 {
+		t.Errorf("should have single message")
+	}
+
+	if !bytes.Equal(message, fRead.Data[0].Content) {
+		t.Errorf("messages do not match. %s but was %s", string(message), string(fRead.Data[0].Content))
+	}
 }
 
 // If a correct process `p` and `q` both GM-Deliver messages `m` and `n`,

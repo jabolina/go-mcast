@@ -37,13 +37,17 @@ func Test_MulticastMessagesConcurrently(t *testing.T) {
 	defer second.Shutdown()
 	defer third.Shutdown()
 
+	sentAB := createMessages(sampleSize)
+	sentBC := createMessages(sampleSize)
+	sentAC := createMessages(sampleSize)
+
 	ab := []byte("AB")
 	bc := []byte("BC")
 	ac := []byte("AC")
 
-	sendBroadcast := func(unity util.Unity, extra []byte, partitions []types.Partition) {
+	sendBroadcast := func(unity util.Unity, msg, extra []byte, partitions []types.Partition) {
 		defer wg.Done()
-		broadcast := util.GenerateRequest([]byte(helper.GenerateUID()), partitions)
+		broadcast := util.GenerateRequest(msg, partitions)
 		broadcast.Extra = extra
 		err := unity.Write(broadcast)
 		if err != nil {
@@ -53,17 +57,17 @@ func Test_MulticastMessagesConcurrently(t *testing.T) {
 
 	wg.Add(sampleSize)
 	for i := 0; i < sampleSize; i++ {
-		go sendBroadcast(first, ab, []types.Partition{partitionA, partitionB})
+		go sendBroadcast(first, sentAB[i], ab, []types.Partition{partitionA, partitionB})
 	}
 
 	wg.Add(sampleSize)
 	for i := 0; i < sampleSize; i++ {
-		go sendBroadcast(second, bc, []types.Partition{partitionB, partitionC})
+		go sendBroadcast(second, sentBC[i], bc, []types.Partition{partitionB, partitionC})
 	}
 
 	wg.Add(sampleSize)
 	for i := 0; i < sampleSize; i++ {
-		go sendBroadcast(third, ac, []types.Partition{partitionA, partitionC})
+		go sendBroadcast(third, sentAC[i], ac, []types.Partition{partitionA, partitionC})
 	}
 
 	wg.Wait()
@@ -80,4 +84,25 @@ func Test_MulticastMessagesConcurrently(t *testing.T) {
 	util.CompareOutputs(t, []util.Unity{first, third}, func(data types.DataHolder) bool {
 		return bytes.Equal(data.Extensions, ac)
 	})
+
+	util.AssertOutputContainsAll(t, sentAB, first, func(data types.DataHolder) bool {
+		return bytes.Equal(data.Extensions, ab)
+	})
+
+	util.AssertOutputContainsAll(t, sentBC, second, func(data types.DataHolder) bool {
+		return bytes.Equal(data.Extensions, bc)
+	})
+
+	util.AssertOutputContainsAll(t, sentAC, third, func(data types.DataHolder) bool {
+		return bytes.Equal(data.Extensions, ac)
+	})
+}
+
+func createMessages(size int) [][]byte {
+	var res [][]byte
+	for i := 0; i < size; i++ {
+		msg := []byte(helper.GenerateUID())
+		res = append(res, msg)
+	}
+	return res
 }
