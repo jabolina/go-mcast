@@ -19,7 +19,7 @@ func CompareOutputs(t *testing.T, unities []Unity, filter func(data types.DataHo
 		return
 	}
 
-	truth := filterOutput(output.Data, filter)
+	truth := FilterOutput(output.Data, filter)
 	filterEntries := func(data []types.DataHolder) []types.DataHolder {
 		var res []types.DataHolder
 		for _, holder := range data {
@@ -30,6 +30,33 @@ func CompareOutputs(t *testing.T, unities []Unity, filter func(data types.DataHo
 		return res
 	}
 	DoWeMatch(truth, unities, filterEntries, t)
+}
+
+func AssertOutputContainsAll(t *testing.T, contained [][]byte, unity Unity, filter func(data types.DataHolder) bool) {
+	output := unity.Read()
+	if !output.Success {
+		t.Errorf("failed reading. %#v", output.Failure)
+		return
+	}
+
+	filtered := FilterOutput(output.Data, filter)
+	if len(filtered) != len(contained) {
+		t.Errorf("should have size %d but have %d", len(contained), len(filtered))
+		return
+	}
+
+	matchCount := 0
+	for _, holder := range filtered {
+		if !ContainsElement(holder.Content, contained) {
+			t.Errorf("element %s should not exists", string(holder.Content))
+			continue
+		}
+		matchCount++
+	}
+
+	if matchCount != len(contained) {
+		t.Errorf("should have %d items, have only %d", len(contained), matchCount)
+	}
 }
 
 func DoWeMatch(expected []types.DataHolder, unities []Unity, filter func([]types.DataHolder) []types.DataHolder, t *testing.T) {
@@ -61,7 +88,16 @@ func (c UnityCluster) DoesClusterMatchTo(expected []types.DataHolder) {
 	DoWeMatch(expected, c.Unities, onlyOrdered, c.T)
 }
 
-func filterOutput(data []types.DataHolder, filter func(data types.DataHolder) bool) []types.DataHolder {
+func ContainsElement(e []byte, slice [][]byte) bool {
+	for _, item := range slice {
+		if bytes.Equal(e, item) {
+			return true
+		}
+	}
+	return false
+}
+
+func FilterOutput(data []types.DataHolder, filter func(data types.DataHolder) bool) []types.DataHolder {
 	var res []types.DataHolder
 	for _, holder := range data {
 		if filter(holder) {
@@ -72,7 +108,7 @@ func filterOutput(data []types.DataHolder, filter func(data types.DataHolder) bo
 }
 
 func onlyOrdered(expected []types.DataHolder) []types.DataHolder {
-	return filterOutput(expected, func(data types.DataHolder) bool {
+	return FilterOutput(expected, func(data types.DataHolder) bool {
 		return data.Extensions == nil
 	})
 }
