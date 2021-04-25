@@ -8,20 +8,20 @@ import (
 
 // A Queue interface.
 type Queue interface {
-	// Add a new item and returns true if a change
+	// Enqueue add a new item and returns true if a change
 	// occurred and false otherwise.
 	Enqueue(interface{}) bool
 
-	// Remove the given item from the queue.
+	// Dequeue remove the given item from the queue.
 	Dequeue(interface{}) interface{}
 
-	// Remove the head of the queue.
+	// Pop remove the head of the queue.
 	Pop() interface{}
 
-	// Get the element if it exists on the memory.
+	// GetIfExists get the element if it exists on the memory.
 	GetIfExists(id string) interface{}
 
-	// This method is what turns the protocol into its generic
+	// GenericDeliver is what turns the protocol into its generic
 	// form, where not all messages are sorted.
 	// This will verify if the given message conflict with other
 	// messages and will delivery if possible.
@@ -30,12 +30,12 @@ type Queue interface {
 	// S3 and do not conflict with any other messages.
 	GenericDeliver(interface{})
 
-	// Verify if the given interface is eligible to be added
-	// to the queue.
+	// IsEligible verify if the given interface is eligible to be
+	// added to the queue.
 	IsEligible(interface{}) bool
 }
 
-// Implements the queue interface. This will be used by a single
+// RQueue implements the queue interface. This will be used by a single
 // peer to hold information about processing messages. Internally
 // will be used a priority queue to retain the messages, using this
 // approach when can have as faster delivery process, since we
@@ -83,11 +83,11 @@ type RQueue struct {
 	conflict types.ConflictRelationship
 
 	// Deliver function to be executed when the head element changes.
-	// We will be notified by the Q.
+	// We will be notified by the ReceivedQueue.
 	deliver chan<- deliverRequest
 }
 
-// Create a new queue data structure.
+// NewQueue create a new queue data structure.
 func NewQueue(ctx context.Context, conflict types.ConflictRelationship, deliver chan<- deliverRequest) Queue {
 	headChannel := make(chan types.Message)
 	r := &RQueue{
@@ -105,21 +105,27 @@ func NewQueue(ctx context.Context, conflict types.ConflictRelationship, deliver 
 	return r
 }
 
-// This method will verify if the given message was
-// previously applied to the state machine.
-// The values are held by a cache where each key can
-// live up to 10 minutes.
+// IsEligible will verify if the given message was previously applied
+// to the state machine. The values are held by a cache where each key
+// can live up to 10 minutes.
 func (r *RQueue) IsEligible(i interface{}) bool {
 	m := i.(types.Message)
 	return !r.applied.Contains(string(m.Identifier))
 }
 
+func (r *RQueue) deliverRequest(dr deliverRequest) {
+	select {
+	case <-r.ctx.Done():
+	case r.deliver <- dr:
+	}
+}
+
 func (r *RQueue) verifyAndDeliverHead(message types.Message) {
 	if r.applied.Set(string(message.Identifier)) {
-		r.deliver <- deliverRequest{
+		r.deliverRequest(deliverRequest{
 			message: message,
 			generic: false,
-		}
+		})
 	} else {
 		InvokerInstance().Spawn(func() {
 			r.Dequeue(message)
@@ -151,7 +157,7 @@ func (r *RQueue) verifyAndInsert(message types.Message) bool {
 	return true
 }
 
-// Implements the Queue interface.
+// Enqueue Implements the Queue interface.
 // This method will add the given element into the priorityQueue,
 // if the value already exists it will be updated and if
 // there is need the values will be sorted again.
@@ -175,18 +181,18 @@ func (r *RQueue) Enqueue(i interface{}) bool {
 	return r.verifyAndInsert(m)
 }
 
-// Implements the Queue interface.
+// Dequeue Implements the Queue interface.
 func (r *RQueue) Dequeue(i interface{}) interface{} {
 	m := i.(types.Message)
 	return r.priorityQueue.Remove(m.Identifier)
 }
 
-// Implements the Queue interface.
+// Pop Implements the Queue interface.
 func (r *RQueue) Pop() interface{} {
 	return r.priorityQueue.Pop()
 }
 
-// Implements the Queue interface.
+// GetIfExists Implements the Queue interface.
 func (r *RQueue) GetIfExists(id string) interface{} {
 	v, ok := r.priorityQueue.GetByKey(types.UID(id))
 	if ok {
@@ -195,7 +201,7 @@ func (r *RQueue) GetIfExists(id string) interface{} {
 	return nil
 }
 
-// Implements the Queue interface.
+// GenericDeliver Implements the Queue interface.
 func (r *RQueue) GenericDeliver(i interface{}) {
 	if !r.IsEligible(i) {
 		return
@@ -218,9 +224,9 @@ func (r *RQueue) GenericDeliver(i interface{}) {
 	// If the message do not conflict with any other message
 	// then it can be delivered directly.
 	if !r.conflict.Conflict(message, messages) && r.applied.Set(string(message.Identifier)) {
-		r.deliver <- deliverRequest{
+		r.deliverRequest(deliverRequest{
 			message: message,
 			generic: true,
-		}
+		})
 	}
 }

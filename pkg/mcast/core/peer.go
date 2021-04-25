@@ -120,7 +120,7 @@ func NewPeer(configuration *types.PeerConfiguration, oracle types.Oracle, logger
 		return nil, err
 	}
 
-	unreliableTransport, err := NewUnreliableTransport(configuration, oracle)
+	unreliableTransport, err := NewUnreliableTransport(configuration, logger, oracle)
 	if err != nil {
 		return nil, err
 	}
