@@ -195,10 +195,10 @@ func (r *RQueue) Pop() interface{} {
 
 // GetIfExists Implements the Queue interface.
 func (r *RQueue) GetIfExists(id string) interface{} {
-	v, ok := r.priorityQueue.GetByKey(types.UID(id))
+	/*v, ok := r.priorityQueue.GetByKey(types.UID(id))
 	if ok {
 		return v
-	}
+	}*/
 	return nil
 }
 

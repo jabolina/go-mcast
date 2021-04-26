@@ -110,3 +110,40 @@ func Test_InsertAndRemoveBackwards(t *testing.T) {
 		t.Errorf("should be nil")
 	}
 }
+
+func Test_ShouldInsertAndReadAllElements(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	var msgs []types.Message
+
+	h := hpq.NewHeap()
+
+	for i := 9; i >= 0; i-- {
+		m := types.Message{
+			Identifier: types.UID(helper.GenerateUID()),
+			Timestamp: uint64(i),
+		}
+		msgs = append(msgs, m)
+		h.Insert(m)
+	}
+
+	curr := h.Values()
+	if len(curr) != len(msgs) {
+		t.Errorf("should have size %d, but found %d", len(msgs), len(curr))
+	}
+
+	for _, msg := range curr {
+		if !contains(msg.(types.Message), msgs) {
+			t.Errorf("unknown message %#v", msg)
+		}
+	}
+}
+
+func contains(msg types.Message, msgs []types.Message) bool {
+	for _, message := range msgs {
+		if message.Identifier == msg.Identifier {
+			return true
+		}
+	}
+	return false
+}

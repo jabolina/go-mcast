@@ -15,6 +15,8 @@ type Heap interface {
 	Remove(types.Message) interface{}
 
 	Values() []interface{}
+
+	IsEmpty() bool
 }
 
 type node struct {
@@ -227,9 +229,12 @@ func (f *FibonacciHeap) Values() []interface{} {
 		for n := r.Value.(*node).children.Front(); n != nil; n = n.Next() {
 			values = append(values, n.Value.(*node).content)
 		}
+		values = append(values, r.Value.(*node).content)
 	}
 	return values
 }
 
-
+func (f *FibonacciHeap) IsEmpty() bool {
+	return f.size == 0
+}
 
