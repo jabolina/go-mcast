@@ -1,10 +1,46 @@
-package core
+package hpq
 
 import (
 	"container/heap"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"sync"
 )
+
+// IPriorityQueue is used as a replacement for the heap.Interface.
+// The default golang interface executes the Swap method between the
+// head and the last element when a Pop is called, this leads to an
+// undesired behaviour where the head changes for the wrong reasons.
+//
+// The minimum, e.g., the next message to be delivered must
+// be on the "head".
+// Using this structure, we should not be manually trying to
+// retrieve the element on the head, for a given validation
+// function the value is returned through a channel, notifying
+// that the value is ready.
+type IPriorityQueue interface {
+	// Push add a new element to the RecvQueue. After this push the
+	// elements will be sorted again if a change occurred.
+	// This also should be used when just updating a value.
+	Push(message types.Message)
+
+	// Pop removes the next element that is ready to be delivered from
+	// the queue. After the element is removed the heap algorithm
+	// will be executed again.
+	Pop() interface{}
+
+	// Remove the message that contains the given identifier.
+	// After the item is removed the heap sorted again.
+	Remove(uid types.UID) interface{}
+
+	// Values return all the elements present on the queue at the time
+	// of the read. After the elements are returned the actual
+	// values can be different.
+	Values() []types.Message
+
+	// GetByKey get the Message element by the given UID. If the value is
+	// not present returns nil.
+	GetByKey(uid types.UID) (types.Message, bool)
+}
 
 type priorityHeap []types.Message
 
@@ -41,7 +77,7 @@ func (h *priorityHeap) update(message types.Message, index int) {
 	}
 }
 
-// A priority queue that uses a heap for ordering elements.
+// PriorityQueue uses a heap for ordering elements.
 type PriorityQueue struct {
 	// Synchronize operations on the Message slice.
 	mutex *sync.Mutex
@@ -56,7 +92,7 @@ type PriorityQueue struct {
 	validation func(message types.Message) bool
 }
 
-func NewPriorityQueue(ch chan<- types.Message, validation func(message types.Message) bool) types.ReceivedQueue {
+func NewPriorityQueue(ch chan<- types.Message, validation func(message types.Message) bool) IPriorityQueue {
 	return &PriorityQueue{
 		mutex:        &sync.Mutex{},
 		values:       priorityHeap{},

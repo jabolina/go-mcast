@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"github.com/jabolina/relt/pkg/relt"
 	"github.com/prometheus/common/log"
@@ -58,7 +59,7 @@ func NewReliableTransport(peer *types.PeerConfiguration, log types.Logger) (Tran
 
 func (r *ReliableTransport) waitTransportReady() (Transport, error) {
 	wait := make(chan error)
-	InvokerInstance().Spawn(func() {
+	helper.InvokerInstance().Spawn(func() {
 		r.poll(wait)
 	})
 	err := <-wait

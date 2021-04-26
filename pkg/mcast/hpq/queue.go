@@ -1,7 +1,8 @@
-package core
+package hpq
 
 import (
 	"context"
+	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"sync"
 )
@@ -71,24 +72,24 @@ type RQueue struct {
 
 	// Keep track of messages that where already applied
 	// onto the state machine.
-	applied Cache
+	applied Purgatory
 
 	// Actual message values. The values will be kept
 	// inside a sorted priorityQueue, so we can have the guarantee
 	// of unique items while keeping the queue behaviour.
-	priorityQueue types.ReceivedQueue
+	priorityQueue IPriorityQueue
 
 	// Hold the conflict relationship to be used
 	// when delivering messages.
 	conflict types.ConflictRelationship
 
 	// Deliver function to be executed when the head element changes.
-	// We will be notified by the ReceivedQueue.
-	deliver chan<- deliverRequest
+	// We will be notified by the IPriorityQueue.
+	deliver chan<- interface{}
 }
 
 // NewQueue create a new queue data structure.
-func NewQueue(ctx context.Context, conflict types.ConflictRelationship, deliver chan<- deliverRequest) Queue {
+func NewQueue(ctx context.Context, conflict types.ConflictRelationship, deliver chan<- interface{}) Queue {
 	headChannel := make(chan types.Message)
 	r := &RQueue{
 		ctx:        ctx,
@@ -101,7 +102,7 @@ func NewQueue(ctx context.Context, conflict types.ConflictRelationship, deliver 
 			return m.State == types.S3
 		}),
 	}
-	InvokerInstance().Spawn(r.poll)
+	helper.InvokerInstance().Spawn(r.poll)
 	return r
 }
 
@@ -113,7 +114,7 @@ func (r *RQueue) IsEligible(i interface{}) bool {
 	return !r.applied.Contains(string(m.Identifier))
 }
 
-func (r *RQueue) deliverRequest(dr deliverRequest) {
+func (r *RQueue) deliverRequest(dr interface{}) {
 	select {
 	case <-r.ctx.Done():
 	case r.deliver <- dr:
@@ -122,12 +123,12 @@ func (r *RQueue) deliverRequest(dr deliverRequest) {
 
 func (r *RQueue) verifyAndDeliverHead(message types.Message) {
 	if r.applied.Set(string(message.Identifier)) {
-		r.deliverRequest(deliverRequest{
+		/*r.deliverRequest(core.deliverRequest{
 			message: message,
 			generic: false,
-		})
+		})*/
 	} else {
-		InvokerInstance().Spawn(func() {
+		helper.InvokerInstance().Spawn(func() {
 			r.Dequeue(message)
 		})
 	}
@@ -224,9 +225,9 @@ func (r *RQueue) GenericDeliver(i interface{}) {
 	// If the message do not conflict with any other message
 	// then it can be delivered directly.
 	if !r.conflict.Conflict(message, messages) && r.applied.Set(string(message.Identifier)) {
-		r.deliverRequest(deliverRequest{
+		/*r.deliverRequest(core.deliverRequest{
 			message: message,
 			generic: true,
-		})
+		})*/
 	}
 }

@@ -3,8 +3,8 @@ package test
 import (
 	"context"
 	"fmt"
-	"github.com/jabolina/go-mcast/pkg/mcast/core"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/hpq"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"math"
 	"sync"
@@ -63,7 +63,7 @@ func TestQueue_ShouldNotifyAboutHead(t *testing.T) {
 	validation := func(message types.Message) bool {
 		return true
 	}
-	q := core.NewPriorityQueue(ch, validation)
+	q := hpq.NewPriorityQueue(ch, validation)
 
 	msg := types.Message{
 		Timestamp:  0,
@@ -94,7 +94,7 @@ func TestQueue_ShouldSetLowestOnHead(t *testing.T) {
 		timestamp: math.MaxUint64,
 		mutex:     sync.Mutex{},
 	}
-	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
+	q := hpq.NewPriorityQueue(ch, func(message types.Message) bool {
 		return true
 	})
 
@@ -164,7 +164,7 @@ func TestQueue_ShouldHaveSmallestConcurrent(t *testing.T) {
 		timestamp: math.MaxUint64,
 		mutex:     sync.Mutex{},
 	}
-	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
+	q := hpq.NewPriorityQueue(ch, func(message types.Message) bool {
 		return true
 	})
 
@@ -234,7 +234,7 @@ func TestQueue_ShouldHaveSmallestConcurrent(t *testing.T) {
 func TestQueue_ShouldEnqueueAndDequeue(t *testing.T) {
 	ch := make(chan types.Message)
 	done := make(chan bool)
-	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
+	q := hpq.NewPriorityQueue(ch, func(message types.Message) bool {
 		return true
 	})
 	canAppend := holder{
@@ -311,7 +311,7 @@ func TestQueue_ShouldEnqueueAndDequeue(t *testing.T) {
 func TestQueue_ShouldEnqueueAndDequeueBasedOnId(t *testing.T) {
 	ch := make(chan types.Message)
 	done := make(chan bool)
-	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
+	q := hpq.NewPriorityQueue(ch, func(message types.Message) bool {
 		return true
 	})
 	canAppend := holder{
@@ -394,7 +394,7 @@ func TestQueue_NotificationWillClearQueue(t *testing.T) {
 		data:  []messageId{},
 		mutex: sync.Mutex{},
 	}
-	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
+	q := hpq.NewPriorityQueue(ch, func(message types.Message) bool {
 		return message.State == types.S3
 	})
 
@@ -459,7 +459,7 @@ func TestQueue_ShouldKeepSmallestOnHead(t *testing.T) {
 	validation := func(message types.Message) bool {
 		return message.State == types.S3
 	}
-	q := core.NewPriorityQueue(ch, validation)
+	q := hpq.NewPriorityQueue(ch, validation)
 	theOriginal := types.Message{
 		Timestamp:  0,
 		Identifier: types.UID(helper.GenerateUID()),
@@ -502,7 +502,7 @@ func TestQueue_ShouldNotifyCorrectlyWhenRemovedArbitraryItems(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.TODO())
 	notificationCounter := int32(0)
-	q := core.NewPriorityQueue(ch, validation)
+	q := hpq.NewPriorityQueue(ch, validation)
 	willBeRemoved := types.Message{
 		Timestamp:  0,
 		Identifier: "2-removed-uid",

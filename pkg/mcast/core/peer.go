@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/hpq"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"io"
 	"sync"
@@ -57,7 +58,7 @@ type Peer struct {
 	mutex *sync.Mutex
 
 	// Used to spawn and control all go routines.
-	invoker Invoker
+	invoker helper.Invoker
 
 	// Configuration for the peer.
 	configuration *types.PeerConfiguration
@@ -73,7 +74,7 @@ type Peer struct {
 	clock LogicalClock
 
 	// The peer received queue, to order the requests.
-	rqueue Queue
+	rqueue hpq.Queue
 
 	// Previous priorityQueue for the peer.
 	previousSet PreviousSet
@@ -134,7 +135,7 @@ func NewPeer(configuration *types.PeerConfiguration, oracle types.Oracle, logger
 
 	p := &Peer{
 		mutex:               &sync.Mutex{},
-		invoker:             InvokerInstance(),
+		invoker:             helper.InvokerInstance(),
 		configuration:       configuration,
 		reliableTransport:   reliableTransport,
 		unreliableTransport: unreliableTransport,
@@ -150,7 +151,7 @@ func NewPeer(configuration *types.PeerConfiguration, oracle types.Oracle, logger
 		context:             configuration.Ctx,
 		finish:              configuration.Cancel,
 	}
-	p.rqueue = NewQueue(configuration.Ctx, configuration.Conflict, p.delivering)
+	p.rqueue = hpq.NewQueue(configuration.Ctx, configuration.Conflict, nil)
 	p.invoker.Spawn(p.poll)
 	p.invoker.Spawn(p.doDeliver)
 	return p, nil
@@ -221,7 +222,9 @@ func (p *Peer) poll() {
 			if !ok {
 				return
 			}
-			p.process(m)
+			p.invoker.Spawn(func() {
+				p.process(m)
+			})
 		}
 	}
 }

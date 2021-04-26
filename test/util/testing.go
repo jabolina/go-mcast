@@ -3,7 +3,6 @@ package util
 import (
 	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast"
-	"github.com/jabolina/go-mcast/pkg/mcast/core"
 	"github.com/jabolina/go-mcast/pkg/mcast/definition"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
@@ -33,7 +32,7 @@ func (t *TestInvoker) Close() error {
 	return nil
 }
 
-func NewInvoker() core.Invoker {
+func NewInvoker() helper.Invoker {
 	return &TestInvoker{
 		group: &sync.WaitGroup{},
 	}
