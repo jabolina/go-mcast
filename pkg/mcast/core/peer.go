@@ -24,11 +24,6 @@ const (
 	outer
 )
 
-type deliverRequest struct {
-	message types.Message
-	generic bool
-}
-
 // Interface that a single peer must implement.
 type PartitionPeer interface {
 	io.Closer
@@ -74,7 +69,7 @@ type Peer struct {
 	clock LogicalClock
 
 	// The peer received queue, to order the requests.
-	rqueue hpq.Queue
+	rqueue hpq.IRQueue
 
 	// Previous priorityQueue for the peer.
 	previousSet PreviousSet
@@ -104,7 +99,7 @@ type Peer struct {
 
 	// Channel to receive messages that are ready to
 	// be delivered.
-	delivering chan deliverRequest
+	delivering chan hpq.ElementNotification
 
 	// The peer cancellable context.
 	context context.Context
@@ -147,11 +142,11 @@ func NewPeer(configuration *types.PeerConfiguration, oracle types.Oracle, logger
 		logger:              logger,
 		received:            NewMemo(),
 		updated:             make(chan types.Message),
-		delivering:          make(chan deliverRequest),
+		delivering:          make(chan hpq.ElementNotification),
 		context:             configuration.Ctx,
 		finish:              configuration.Cancel,
 	}
-	p.rqueue = hpq.NewQueue(configuration.Ctx, configuration.Conflict, nil)
+	p.rqueue = hpq.NewReceivedQueue(configuration.Ctx, p.delivering, p.conflict)
 	p.invoker.Spawn(p.poll)
 	p.invoker.Spawn(p.doDeliver)
 	return p, nil
@@ -189,6 +184,9 @@ func (p *Peer) FastRead() types.Response {
 func (p *Peer) Close() error {
 	defer close(p.updated)
 	p.finish()
+	if err := p.rqueue.Close(); err != nil {
+		return err
+	}
 	if err := p.reliableTransport.Close(); err != nil {
 		return err
 	}
@@ -246,14 +244,14 @@ func (p *Peer) process(message types.Message) {
 		return
 	}
 
-	if !p.rqueue.IsEligible(message) {
+	if !p.rqueue.Acceptable(message) {
 		return
 	}
 	enqueue := true
 	sState, sTs := message.State, message.Timestamp
 	defer func() {
 		eState, eTs := message.State, message.Timestamp
-		insert := enqueue && p.rqueue.Enqueue(message)
+		insert := enqueue && p.rqueue.Append(message)
 		p.logger.Debugf("%s - (%d, %d) -> (%d, %d) %d %v @ %s <-> %s", message.Identifier, sState, sTs, eState, eTs, message.Header.Type, insert, p.configuration.Name, message.From)
 		if insert {
 			p.invoker.Spawn(func() {
@@ -422,7 +420,7 @@ func (p *Peer) publishToReprocess(message types.Message) {
 // local peer state machine.
 func (p *Peer) doDeliver() {
 	for req := range p.delivering {
-		m, isGenericDeliver := req.message, req.generic
+		m, isGenericDeliver := req.Value.(types.Message), req.OnApply
 		select {
 		case p.configuration.Commit <- p.deliver.Commit(m, isGenericDeliver):
 			break
@@ -432,11 +430,7 @@ func (p *Peer) doDeliver() {
 
 		p.invoker.Spawn(func() {
 			p.received.Remove(m.Identifier)
-			if isGenericDeliver {
-				p.rqueue.Dequeue(m)
-			} else {
-				p.rqueue.Pop()
-			}
+			p.rqueue.Remove(m)
 		})
 	}
 }

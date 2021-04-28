@@ -8,6 +8,14 @@ import (
 	"testing"
 )
 
+func wrapMessage(message types.Message) hpq.MessageWrapper {
+	return hpq.MessageWrapper{Message: message}
+}
+
+func unwrapMessage(i interface{}) types.Message {
+	return i.(hpq.MessageWrapper).Message
+}
+
 func Test_ShouldInsertAndReadSuccessfully(t *testing.T) {
 	defer goleak.VerifyNone(t)
 
@@ -16,9 +24,9 @@ func Test_ShouldInsertAndReadSuccessfully(t *testing.T) {
 	for i := 9; i >= 0; i-- {
 		m := types.Message{
 			Identifier: types.UID(helper.GenerateUID()),
-			Timestamp: uint64(i),
+			Timestamp:  uint64(i),
 		}
-		h.Insert(m)
+		h.Insert(wrapMessage(m))
 	}
 
 	for i := 0; i < 10; i++ {
@@ -26,7 +34,7 @@ func Test_ShouldInsertAndReadSuccessfully(t *testing.T) {
 		if m == nil {
 			t.Errorf("should not be nil at %d", i)
 		} else {
-			if m.(types.Message).Timestamp != uint64(i) {
+			if unwrapMessage(m).Timestamp != uint64(i) {
 				t.Errorf("should have ts %d, found %d", i, m.(types.Message).Timestamp)
 			}
 		}
@@ -45,34 +53,34 @@ func Test_ShouldInsertAndUpdate(t *testing.T) {
 
 	initial := types.Message{
 		Identifier: types.UID(helper.GenerateUID()),
-		Timestamp: 0,
+		Timestamp:  0,
 	}
 	other := types.Message{
 		Identifier: types.UID(helper.GenerateUID()),
-		Timestamp: 1,
+		Timestamp:  1,
 	}
 
-	h.Insert(initial)
-	h.Insert(other)
+	h.Insert(wrapMessage(initial))
+	h.Insert(wrapMessage(other))
 
 	curr := h.Peek()
 	if curr == nil {
 		t.Errorf("head is nil")
 	}
 
-	if curr.(types.Message).Identifier != initial.Identifier {
+	if unwrapMessage(curr).Identifier != initial.Identifier {
 		t.Errorf("should be %#v but was %#v", initial, curr)
 	}
 
 	initial.Timestamp = 2
-	h.Insert(initial)
+	h.Insert(wrapMessage(initial))
 
 	curr = h.Peek()
 	if curr == nil {
 		t.Errorf("head is nil")
 	}
 
-	if curr.(types.Message).Identifier != other.Identifier {
+	if unwrapMessage(curr).Identifier != other.Identifier {
 		t.Errorf("should be %#v but was %#v", other, curr)
 	}
 }
@@ -87,20 +95,20 @@ func Test_InsertAndRemoveBackwards(t *testing.T) {
 	for i := 9; i >= 0; i-- {
 		m := types.Message{
 			Identifier: types.UID(helper.GenerateUID()),
-			Timestamp: uint64(i),
+			Timestamp:  uint64(i),
 		}
 		msgs = append(msgs, m)
-		h.Insert(m)
+		h.Insert(wrapMessage(m))
 	}
 
 	for _, msg := range msgs {
-		curr := h.Remove(msg)
+		curr := h.Remove(wrapMessage(msg))
 		if curr == nil {
 			t.Errorf("current should not be nil")
 			continue
 		}
 
-		if curr.(types.Message).Identifier != msg.Identifier {
+		if unwrapMessage(curr).Identifier != msg.Identifier {
 			t.Errorf("expected %#v but found %#v", msg, curr)
 		}
 	}
@@ -121,10 +129,10 @@ func Test_ShouldInsertAndReadAllElements(t *testing.T) {
 	for i := 9; i >= 0; i-- {
 		m := types.Message{
 			Identifier: types.UID(helper.GenerateUID()),
-			Timestamp: uint64(i),
+			Timestamp:  uint64(i),
 		}
 		msgs = append(msgs, m)
-		h.Insert(m)
+		h.Insert(wrapMessage(m))
 	}
 
 	curr := h.Values()
@@ -133,7 +141,7 @@ func Test_ShouldInsertAndReadAllElements(t *testing.T) {
 	}
 
 	for _, msg := range curr {
-		if !contains(msg.(types.Message), msgs) {
+		if !contains(unwrapMessage(msg), msgs) {
 			t.Errorf("unknown message %#v", msg)
 		}
 	}

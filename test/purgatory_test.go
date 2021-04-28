@@ -17,7 +17,7 @@ func Test_ShouldConcurrentlySet(t *testing.T) {
 	testSize := 50
 	var ids []string
 
-	c := hpq.NewTtlCache()
+	c := hpq.NewPurgatory()
 
 	insert := func(id string) {
 		defer wg.Done()

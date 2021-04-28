@@ -5,17 +5,17 @@ import (
 )
 
 var (
-	defaultValue = []byte{0x1}
+	defaultValue    = []byte{0x1}
 	entryExpiration = 500
 )
 
 type Purgatory interface {
 	// Set will add a new entry to the purgatory.
-	// Returns true if the value did not exists previously
+	// Returns true if the Value did not exists previously
 	// and false otherwise.
 	Set(id string) bool
 
-	// Contains verify if the given value exists in purgatory.
+	// Contains verify if the given Value exists in purgatory.
 	Contains(id string) bool
 }
 
@@ -27,14 +27,14 @@ type TtlPurgatory struct {
 	delegate *freecache.Cache
 }
 
-func NewTtlCache() Purgatory {
+func NewPurgatory() Purgatory {
 	c := &TtlPurgatory{
 		delegate: freecache.NewCache(10 * 1024 * 1024),
 	}
 	return c
 }
 
-// Set add a new value to the cache.
+// Set add a new Value to the cache.
 // If a previous element already exists, nothing changes.
 func (t *TtlPurgatory) Set(id string) bool {
 	old, err := t.delegate.GetOrSet([]byte(id), defaultValue, entryExpiration)

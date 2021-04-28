@@ -2,21 +2,28 @@ package hpq
 
 import (
 	"container/list"
-	"github.com/jabolina/go-mcast/pkg/mcast/types"
 )
 
 type Heap interface {
-	Insert(types.Message)
+	Insert(HeapItem)
 
 	Peek() interface{}
 
 	Pop() interface{}
 
-	Remove(types.Message) interface{}
+	Get(HeapItem) interface{}
+
+	Remove(HeapItem) interface{}
 
 	Values() []interface{}
 
 	IsEmpty() bool
+}
+
+type HeapItem interface {
+	Id() interface{}
+
+	Less(HeapItem) bool
 }
 
 type node struct {
@@ -27,15 +34,15 @@ type node struct {
 	degree   uint
 	position uint
 	tag      interface{}
-	content  types.Message
+	content  HeapItem
 }
 
 type FibonacciHeap struct {
-	roots *list.List
-	index map[interface{}]*node
+	roots       *list.List
+	index       map[interface{}]*node
 	treeDegrees map[uint]*list.Element
-	min *node
-	size int
+	min         *node
+	size        int
 }
 
 func NewHeap() Heap {
@@ -48,18 +55,14 @@ func NewHeap() Heap {
 	}
 }
 
-func (n *node) less(other *node) bool {
-	return n.content.HasHigherPriority(other.content)
-}
-
-func (f *FibonacciHeap) update(n *node, message types.Message) {
-	n.content = message
+func (f *FibonacciHeap) update(n *node, item HeapItem) {
+	n.content = item
 
 	child := n.children.Front()
 	for child != nil {
 		childNode := child.Value.(*node)
 		child = child.Next()
-		if childNode.less(n) {
+		if childNode.content.Less(item) {
 			f.cut(childNode)
 			f.cascadingCut(n)
 		}
@@ -93,7 +96,7 @@ func (f *FibonacciHeap) cascadingCut(n *node) {
 func (f *FibonacciHeap) resetMin() {
 	f.min = f.roots.Front().Value.(*node)
 	for tree := f.min.self.Next(); tree != nil; tree = tree.Next() {
-		if tree.Value.(*node).less(f.min) {
+		if tree.Value.(*node).content.Less(f.min.content) {
 			f.min = tree.Value.(*node)
 		}
 	}
@@ -127,7 +130,7 @@ func (f *FibonacciHeap) consolidate() {
 		for f.treeDegrees[tree.Value.(*node).degree] != nil {
 			another := f.treeDegrees[tree.Value.(*node).degree]
 			f.treeDegrees[tree.Value.(*node).degree] = nil
-			if tree.Value.(*node).less(another.Value.(*node)) {
+			if tree.Value.(*node).content.Less(another.Value.(*node).content) {
 				f.roots.Remove(another)
 				f.link(tree.Value.(*node), another.Value.(*node))
 			} else {
@@ -168,22 +171,22 @@ func (f *FibonacciHeap) extractMin() *node {
 	return min
 }
 
-func (f *FibonacciHeap) Insert(message types.Message) {
-	if n, exists := f.index[message.Identifier]; exists {
-		f.update(n, message)
+func (f *FibonacciHeap) Insert(item HeapItem) {
+	if n, exists := f.index[item.Id()]; exists {
+		f.update(n, item)
 		return
 	}
 
 	n := new(node)
 	n.children = list.New()
-	n.tag = message.Identifier
-	n.content = message
+	n.tag = item.Id()
+	n.content = item
 
 	n.self = f.roots.PushBack(n)
 	f.index[n.tag] = n
 	f.size++
 
-	if f.min == nil || n.less(f.min) {
+	if f.min == nil || n.content.Less(f.min.content) {
 		f.min = n
 	}
 }
@@ -204,8 +207,16 @@ func (f *FibonacciHeap) Peek() interface{} {
 	return f.min.content
 }
 
-func (f *FibonacciHeap) Remove(message types.Message) interface{} {
-	n, exists := f.index[message.Identifier]
+func (f *FibonacciHeap) Get(item HeapItem) interface{} {
+	n, ok := f.index[item.Id()]
+	if !ok {
+		return nil
+	}
+	return n.content
+}
+
+func (f *FibonacciHeap) Remove(item HeapItem) interface{} {
+	n, exists := f.index[item.Id()]
 	if !exists {
 		return nil
 	}
@@ -225,11 +236,8 @@ func (f *FibonacciHeap) Remove(message types.Message) interface{} {
 
 func (f *FibonacciHeap) Values() []interface{} {
 	var values []interface{}
-	for r := f.roots.Front(); r != nil; r = r.Next() {
-		for n := r.Value.(*node).children.Front(); n != nil; n = n.Next() {
-			values = append(values, n.Value.(*node).content)
-		}
-		values = append(values, r.Value.(*node).content)
+	for _, n := range f.index {
+		values = append(values, n.content)
 	}
 	return values
 }
@@ -237,4 +245,3 @@ func (f *FibonacciHeap) Values() []interface{} {
 func (f *FibonacciHeap) IsEmpty() bool {
 	return f.size == 0
 }
-
