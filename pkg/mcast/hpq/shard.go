@@ -3,24 +3,31 @@ package hpq
 import (
 	"context"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
-	"github.com/jabolina/go-mcast/pkg/mcast/types"
 )
 
-// A Queue interface.
-type Queue interface {
+// A Shard interface.
+type Shard interface {
 	// Enqueue add a new item and returns true if a change
 	// occurred and false otherwise.
-	Enqueue(message types.Message) bool
+	Enqueue(ShardElement) bool
 
 	// Dequeue remove the given item from the queue.
-	Dequeue(message types.Message) interface{}
+	Dequeue(ShardElement) interface{}
 
 	// Apply will read all the current available elements and
 	// executing the given function.
-	Apply(func([]types.Message))
+	Apply(func([]ShardElement))
 }
 
-// RQueue implements the queue interface. This will be used by a single
+type ShardElement interface {
+	QueueElement
+
+	IsUpdatedVersion(ShardElement) bool
+
+	IsAcceptable() bool
+}
+
+// PriorityQueueShard implements the Shard interface. This will be used by a single
 // peer to hold information about processing messages. Internally
 // will be used a priority queue to retain the messages, using this
 // approach when can have as faster delivery process, since we
@@ -40,16 +47,16 @@ type Queue interface {
 // the lowest timestamp, when the head arrives on State S3 it will
 // be delivered exactly once. Using the implemented Q,
 // we will receive updates about changes on the head of the queue,
-// so the RQueue responsibility will be to verify if the Value was
+// so the PriorityQueueShard responsibility will be to verify if the Value was
 // no previously applied and send back through the deliver callback.
-type RQueue struct {
+type PriorityQueueShard struct {
 	// The parent context, this will be used to shutdown the
 	// poll method and close the queue in a way not graceful.
 	ctx context.Context
 
 	// Channel that will receive information about the changes
 	// in the head of the queue.
-	headChange chan types.Message
+	headChange chan QueueElement
 
 	// Actual Message values. The values will be kept
 	// inside a sorted priorityQueue, so we can have the guarantee
@@ -62,27 +69,29 @@ type RQueue struct {
 }
 
 // NewQueue create a new queue data structure.
-func NewQueue(ctx context.Context, deliver func(ElementNotification) bool, f func(types.Message) bool) Queue {
-	headChannel := make(chan types.Message)
-	r := &RQueue{
-		ctx:           ctx,
-		headChange:    headChannel,
-		deliver:       deliver,
-		priorityQueue: NewPriorityQueue(ctx, headChannel, f),
+func NewQueue(ctx context.Context, deliver func(ElementNotification) bool, f func(ShardElement) bool) Shard {
+	headChannel := make(chan QueueElement)
+	r := &PriorityQueueShard{
+		ctx:        ctx,
+		headChange: headChannel,
+		deliver:    deliver,
+		priorityQueue: NewPriorityQueue(ctx, headChannel, func(element QueueElement) bool {
+			return f(element.(ShardElement))
+		}),
 	}
 	helper.InvokerInstance().Spawn(r.poll)
 	return r
 }
 
-func (r *RQueue) verifyAndDeliverHead(message types.Message) {
+func (r *PriorityQueueShard) verifyAndDeliverHead(element ShardElement) {
 	en := ElementNotification{
-		Value:   message,
+		Value:   element,
 		OnApply: false,
 	}
 
 	if !r.deliver(en) {
 		helper.InvokerInstance().Spawn(func() {
-			r.Dequeue(message)
+			r.Dequeue(element)
 		})
 	}
 }
@@ -91,13 +100,13 @@ func (r *RQueue) verifyAndDeliverHead(message types.Message) {
 // alive. The element in the head of the queue will be
 // verified every 5 milliseconds and if the element
 // changed the delivery method will be called.
-func (r *RQueue) poll() {
+func (r *PriorityQueueShard) poll() {
 	for {
 		select {
 		case <-r.ctx.Done():
 			return
 		case m := <-r.headChange:
-			r.verifyAndDeliverHead(m)
+			r.verifyAndDeliverHead(m.(ShardElement))
 		}
 	}
 }
@@ -105,42 +114,41 @@ func (r *RQueue) poll() {
 // Will verify if the Message can be added into the priorityQueue.
 // The cache will hold messages that already removed and
 // cannot be inserted again.
-func (r *RQueue) verifyAndInsert(message types.Message) bool {
-	r.priorityQueue.Push(message)
+func (r *PriorityQueueShard) verifyAndInsert(element ShardElement) bool {
+	r.priorityQueue.Push(element)
 	return true
 }
 
-// Enqueue Implements the Queue interface.
+// Enqueue Implements the Shard interface.
 // This method will add the given element into the priorityQueue,
 // if the Value already exists it will be updated and if
 // there is need the values will be sorted again.
-func (r *RQueue) Enqueue(m types.Message) bool {
-	exists := r.GetIfExists(string(m.Identifier))
+func (r *PriorityQueueShard) Enqueue(element ShardElement) bool {
+	exists := r.priorityQueue.Get(element)
 	if exists != nil {
-		v := exists.(types.Message)
+		v := exists.(ShardElement)
 		// I can only change the Message state if the new Message contains
 		// a timestamp at lest equals to the already present on memory and
 		// a state that is currently higher or equal than the previous one.
 		// Thus ensuring that the Message do not "go back in time".
-		if v.State != types.S3 && v.Updated(m) {
-			return r.verifyAndInsert(m)
+		if v.IsAcceptable() && v.IsUpdatedVersion(element) {
+			return r.verifyAndInsert(element)
 		}
 		return false
 	}
-	return r.verifyAndInsert(m)
+	return r.verifyAndInsert(element)
 }
 
-// Dequeue Implements the Queue interface.
-func (r *RQueue) Dequeue(m types.Message) interface{} {
-	return r.priorityQueue.Remove(m.Identifier)
+// Dequeue Implements the Shard interface.
+func (r *PriorityQueueShard) Dequeue(element ShardElement) interface{} {
+	return r.priorityQueue.Remove(element)
 }
 
-// GetIfExists Implements the Queue interface.
-func (r *RQueue) GetIfExists(id string) interface{} {
-	return r.priorityQueue.Get(types.UID(id))
-}
-
-func (r *RQueue) Apply(f func([]types.Message)) {
+func (r *PriorityQueueShard) Apply(f func([]ShardElement)) {
 	values := r.priorityQueue.Values()
-	f(values)
+	var res []ShardElement
+	for _, value := range values {
+		res = append(res, value.(ShardElement))
+	}
+	f(res)
 }

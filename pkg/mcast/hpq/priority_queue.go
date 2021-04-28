@@ -2,7 +2,6 @@ package hpq
 
 import (
 	"context"
-	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"sync"
 )
 
@@ -17,7 +16,7 @@ type IPriorityQueue interface {
 	// Push add a new element to the RecvQueue. After this push the
 	// elements will be sorted again if a change occurred.
 	// This also should be used when just updating a Value.
-	Push(message types.Message)
+	Push(QueueElement)
 
 	// Pop removes the next element that is ready to be delivered from
 	// the queue. After the element is removed the heap algorithm
@@ -26,20 +25,22 @@ type IPriorityQueue interface {
 
 	// Remove the Message that contains the given identifier.
 	// After the item is removed the heap sorted again.
-	Remove(uid types.UID) interface{}
+	Remove(QueueElement) interface{}
 
 	// Get tries to return the element associated with the
 	// given uid.
-	Get(uid types.UID) interface{}
+	Get(QueueElement) interface{}
 
 	// Values return all the elements present on the queue at the time
 	// of the read. After the elements are returned the actual
 	// values can be different.
-	Values() []types.Message
+	Values() []QueueElement
 }
 
-type MessageWrapper struct {
-	Message types.Message
+type QueueElement interface {
+	HeapItem
+
+	Diff(QueueElement) bool
 }
 
 // PriorityQueue uses a heap for ordering elements.
@@ -53,13 +54,13 @@ type PriorityQueue struct {
 	values Heap
 
 	// A channel for notification about changes on the head element.
-	notification chan<- types.Message
+	notification chan<- QueueElement
 
 	// A function to verify if the given element can be notified.
-	validation func(message types.Message) bool
+	validation func(QueueElement) bool
 }
 
-func NewPriorityQueue(ctx context.Context, ch chan<- types.Message, validation func(message types.Message) bool) IPriorityQueue {
+func NewPriorityQueue(ctx context.Context, ch chan<- QueueElement, validation func(QueueElement) bool) IPriorityQueue {
 	return &PriorityQueue{
 		mutex:        &sync.RWMutex{},
 		ctx:          ctx,
@@ -73,30 +74,30 @@ func NewPriorityQueue(ctx context.Context, ch chan<- types.Message, validation f
 // changes. See that this method can issue the same object multiple
 // times. The listener is responsible for handling the duplicated values.
 func (p *PriorityQueue) sendNotification() {
-	msg := p.values.Peek()
+	msg := p.values.Peek().(QueueElement)
 	select {
 	case <-p.ctx.Done():
-	case p.notification <- unwrap(msg):
+	case p.notification <- msg:
 	}
 }
 
-func (p *PriorityQueue) Push(message types.Message) {
+func (p *PriorityQueue) Push(element QueueElement) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	if !p.values.IsEmpty() {
 		// If the head already contains an element.
 		// We must verify it with the Value when the function returns.
-		headStart := unwrap(p.values.Peek())
+		headStart := p.values.Peek().(QueueElement)
 		defer func() {
-			headCurrent := unwrap(p.values.Peek())
+			headCurrent := p.values.Peek().(QueueElement)
 			if headStart.Diff(headCurrent) && p.validation(headCurrent) {
 				p.sendNotification()
 			}
 		}()
 	} else {
 		defer func() {
-			head := unwrap(p.values.Peek())
+			head := p.values.Peek().(QueueElement)
 			// We know the head was empty and now has a Value, so
 			// it definitely changed, now only verify if the Value
 			// can notify.
@@ -106,8 +107,7 @@ func (p *PriorityQueue) Push(message types.Message) {
 		}()
 	}
 
-	mw := MessageWrapper{Message: message}
-	p.values.Insert(mw)
+	p.values.Insert(element)
 }
 
 func (p *PriorityQueue) Pop() interface{} {
@@ -119,26 +119,23 @@ func (p *PriorityQueue) Pop() interface{} {
 			// The Pop method will remove the head element, so
 			// if we still have elements the head definitely changed,
 			// we only need to verify if the Value can notify.
-			headCurrent := unwrap(p.values.Peek())
+			headCurrent := p.values.Peek().(QueueElement)
 			if p.validation(headCurrent) {
 				p.sendNotification()
 			}
 		}
 	}()
 
-	return unwrapOrNil(p.values.Pop())
+	return p.values.Pop()
 }
 
-func (p *PriorityQueue) Get(uid types.UID) interface{} {
+func (p *PriorityQueue) Get(element QueueElement) interface{} {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	mw := MessageWrapper{
-		Message: types.Message{Identifier: uid},
-	}
-	return unwrapOrNil(p.values.Get(mw))
+	return p.values.Get(element)
 }
 
-func (p *PriorityQueue) Remove(uid types.UID) interface{} {
+func (p *PriorityQueue) Remove(element QueueElement) interface{} {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -146,10 +143,10 @@ func (p *PriorityQueue) Remove(uid types.UID) interface{} {
 	// head, so we will verify the old head with the
 	// current after the function returns.
 	if !p.values.IsEmpty() {
-		headStart := unwrap(p.values.Peek())
+		headStart := p.values.Peek().(QueueElement)
 		defer func() {
 			if !p.values.IsEmpty() {
-				headCurrent := unwrap(p.values.Peek())
+				headCurrent := p.values.Peek().(QueueElement)
 				if headStart.Diff(headCurrent) && p.validation(headCurrent) {
 					p.sendNotification()
 				}
@@ -157,39 +154,18 @@ func (p *PriorityQueue) Remove(uid types.UID) interface{} {
 		}()
 	}
 
-	mw := MessageWrapper{Message: types.Message{Identifier: uid}}
-	return unwrapOrNil(p.values.Remove(mw))
+	return p.values.Remove(element)
 }
 
-func (p *PriorityQueue) Values() []types.Message {
+func (p *PriorityQueue) Values() []QueueElement {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 	curr := p.values.Values()
 
-	var messages []types.Message
-	for _, msg := range curr {
-		messages = append(messages, unwrap(msg))
+	var messages []QueueElement
+	for _, e := range curr {
+		messages = append(messages, e.(QueueElement))
 	}
 
 	return messages
-}
-
-func (m MessageWrapper) Id() interface{} {
-	return m.Message.Identifier
-}
-
-func (m MessageWrapper) Less(item HeapItem) bool {
-	other := item.(MessageWrapper)
-	return m.Message.HasHigherPriority(other.Message)
-}
-
-func unwrapOrNil(i interface{}) interface{} {
-	if i == nil {
-		return nil
-	}
-	return unwrap(i)
-}
-
-func unwrap(i interface{}) types.Message {
-	return i.(MessageWrapper).Message
 }

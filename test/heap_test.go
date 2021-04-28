@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-func wrapMessage(message types.Message) hpq.MessageWrapper {
-	return hpq.MessageWrapper{Message: message}
+func wrapMessage(message types.Message) hpq.WrappedMessageElement {
+	return hpq.WrappedMessageElement{Value: message}
 }
 
 func unwrapMessage(i interface{}) types.Message {
-	return i.(hpq.MessageWrapper).Message
+	return i.(hpq.WrappedMessageElement).Value
 }
 
 func Test_ShouldInsertAndReadSuccessfully(t *testing.T) {
