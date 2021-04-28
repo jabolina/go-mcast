@@ -68,8 +68,8 @@ type PriorityQueueShard struct {
 	deliver func(ElementNotification) bool
 }
 
-// NewQueue create a new queue data structure.
-func NewQueue(ctx context.Context, deliver func(ElementNotification) bool, f func(ShardElement) bool) Shard {
+// NewShard create a new queue data structure.
+func NewShard(ctx context.Context, deliver func(ElementNotification) bool, f func(ShardElement) bool) Shard {
 	headChannel := make(chan QueueElement)
 	r := &PriorityQueueShard{
 		ctx:        ctx,

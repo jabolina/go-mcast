@@ -5,6 +5,7 @@ import (
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"io"
+	"sync"
 )
 
 // IRQueue is the interface responsible for interacting with
@@ -45,6 +46,7 @@ type PeerQueueManager struct {
 	purgatory Purgatory
 	notify    chan<- ElementNotification
 	flag      *helper.Flag
+	mutex     *sync.Mutex
 }
 
 func NewReceivedQueue(ctx context.Context, notify chan<- ElementNotification, conflict types.ConflictRelationship) IRQueue {
@@ -54,6 +56,7 @@ func NewReceivedQueue(ctx context.Context, notify chan<- ElementNotification, co
 		purgatory: NewPurgatory(),
 		notify:    notify,
 		flag:      &helper.Flag{},
+		mutex:     &sync.Mutex{},
 	}
 	p.eden = NewEden(ctx, p.applyOnDeliver)
 	return p
@@ -61,6 +64,9 @@ func NewReceivedQueue(ctx context.Context, notify chan<- ElementNotification, co
 
 func (p *PeerQueueManager) notifyElement(en ElementNotification) {
 	if p.flag.IsActive() {
+		p.mutex.Lock()
+		defer p.mutex.Unlock()
+
 		select {
 		case <-p.ctx.Done():
 		case p.notify <- en:
@@ -78,8 +84,9 @@ func (p *PeerQueueManager) applyOnDeliver(notification ElementNotification) bool
 
 func (p *PeerQueueManager) Close() error {
 	if p.flag.Inactivate() {
-		defer close(p.notify)
-		return p.eden.Close()
+		p.mutex.Lock()
+		defer p.mutex.Unlock()
+		close(p.notify)
 	}
 	return nil
 }

@@ -3,12 +3,9 @@ package hpq
 import (
 	"context"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
-	"io"
 )
 
 type Eden interface {
-	io.Closer
-
 	// Enqueue add a new item and returns true if a change
 	// occurred and false otherwise.
 	Enqueue(message types.Message) bool
@@ -22,9 +19,7 @@ type Eden interface {
 }
 
 type EdenSharded struct {
-	delegate Shard
-	ctx      context.Context
-	cancel   context.CancelFunc
+	shard Shard
 }
 
 type WrappedMessageElement struct {
@@ -32,7 +27,6 @@ type WrappedMessageElement struct {
 }
 
 func NewEden(parent context.Context, deliver func(ElementNotification) bool) Eden {
-	ctx, cancel := context.WithCancel(parent)
 	filter := func(element ShardElement) bool {
 		return element.(WrappedMessageElement).Value.State == types.S3
 	}
@@ -45,27 +39,20 @@ func NewEden(parent context.Context, deliver func(ElementNotification) bool) Ede
 		return deliver(en)
 	}
 	return &EdenSharded{
-		delegate: NewQueue(ctx, unwrappedDeliver, filter),
-		ctx:      ctx,
-		cancel:   cancel,
+		shard: NewShard(parent, unwrappedDeliver, filter),
 	}
 }
 
-func (e *EdenSharded) Close() error {
-	e.cancel()
-	return nil
-}
-
 func (e *EdenSharded) Enqueue(message types.Message) bool {
-	return e.delegate.Enqueue(wrap(message))
+	return e.shard.Enqueue(wrap(message))
 }
 
 func (e *EdenSharded) Dequeue(message types.Message) interface{} {
-	return unwrapOrNil(e.delegate.Dequeue(wrap(message)))
+	return unwrapOrNil(e.shard.Dequeue(wrap(message)))
 }
 
 func (e *EdenSharded) Apply(f func([]types.Message)) {
-	e.delegate.Apply(func(elements []ShardElement) {
+	e.shard.Apply(func(elements []ShardElement) {
 		var unwrapped []types.Message
 		for _, element := range elements {
 			unwrapped = append(unwrapped, element.(WrappedMessageElement).Value)
