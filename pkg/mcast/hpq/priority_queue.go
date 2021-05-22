@@ -31,10 +31,8 @@ type IPriorityQueue interface {
 	// given uid.
 	Get(QueueElement) interface{}
 
-	// Values return all the elements present on the queue at the time
-	// of the read. After the elements are returned the actual
-	// values can be different.
-	Values() []QueueElement
+	// Execute will lock the structure and executes the given function.
+	Execute(func([]QueueElement))
 }
 
 type QueueElement interface {
@@ -157,7 +155,10 @@ func (p *PriorityQueue) Remove(element QueueElement) interface{} {
 	return p.values.Remove(element)
 }
 
-func (p *PriorityQueue) Values() []QueueElement {
+// Execute ensure that the queue does not change while we apply some
+// function with the values on the priority queue. If the values are copied
+// and then returned there is no guarantee that the used values are the actual values.
+func (p *PriorityQueue) Execute(f func([]QueueElement)) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 	curr := p.values.Values()
@@ -167,5 +168,5 @@ func (p *PriorityQueue) Values() []QueueElement {
 		messages = append(messages, e.(QueueElement))
 	}
 
-	return messages
+	f(messages)
 }

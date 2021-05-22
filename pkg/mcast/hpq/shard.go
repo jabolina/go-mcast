@@ -145,10 +145,11 @@ func (r *PriorityQueueShard) Dequeue(element ShardElement) interface{} {
 }
 
 func (r *PriorityQueueShard) Apply(f func([]ShardElement)) {
-	values := r.priorityQueue.Values()
-	var res []ShardElement
-	for _, value := range values {
-		res = append(res, value.(ShardElement))
-	}
-	f(res)
+	r.priorityQueue.Execute(func(values []QueueElement) {
+		var res []ShardElement
+		for _, value := range values {
+			res = append(res, value.(ShardElement))
+		}
+		f(res)
+	})
 }
