@@ -77,6 +77,8 @@ github.com/digital-comrades/proletariat v1.0.6 h1:vKy1zNXPJlG2CZsZZA1+XG6Nhy2T1O
 github.com/digital-comrades/proletariat v1.0.6/go.mod h1:FVjuYrnk1mbtyZL/6mKpodlZAeH12B9HsDTK2uLGoSI=
 github.com/digital-comrades/proletariat v1.0.7 h1:kzbkpvoAbTryr9jfhPw/u1X3pHJ/UC4Ek/TKDn6St1I=
 github.com/digital-comrades/proletariat v1.0.7/go.mod h1:FVjuYrnk1mbtyZL/6mKpodlZAeH12B9HsDTK2uLGoSI=
+github.com/digital-comrades/proletariat v1.0.8 h1:eTLmwHH7yUlAQwd9vt3sCQU8YJ0Li1I2c9cDz0paA1U=
+github.com/digital-comrades/proletariat v1.0.8/go.mod h1:FVjuYrnk1mbtyZL/6mKpodlZAeH12B9HsDTK2uLGoSI=
 github.com/dnephin/pflag v1.0.7 h1:oxONGlWxhmUct0YzKTgrpQv9AUA1wtPBn7zuSjJqptk=
 github.com/dnephin/pflag v1.0.7/go.mod h1:uxE91IoWURlOiTUIA8Mq5ZZkAv3dPUfZNaT80Zm7OQE=
 github.com/dustin/go-humanize v0.0.0-20171111073723-bb3d318650d4/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=

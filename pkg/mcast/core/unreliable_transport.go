@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/digital-comrades/proletariat/pkg/proletariat"
+	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 )
 
@@ -52,8 +53,8 @@ func NewUnreliableTransport(peer *types.PeerConfiguration, log types.Logger, ora
 		cancel:        cancel,
 		log:           log,
 	}
-	InvokerInstance().Spawn(comm.Start)
-	InvokerInstance().Spawn(ut.poll)
+	helper.InvokerInstance().Spawn(comm.Start)
+	helper.InvokerInstance().Spawn(ut.poll)
 	return ut, err
 }
 

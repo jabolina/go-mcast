@@ -3,9 +3,10 @@ package test
 import (
 	"context"
 	"fmt"
-	"github.com/jabolina/go-mcast/pkg/mcast/core"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/hpq"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
+	"github.com/jabolina/go-mcast/test/util"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -13,57 +14,12 @@ import (
 	"time"
 )
 
-type holder struct {
-	timestamp uint64
-	mutex     sync.Mutex
-}
-
-func (h *holder) Set(value uint64) {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-	h.timestamp = value
-}
-
-func (h *holder) Get() uint64 {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-	return h.timestamp
-}
-
-type messageId struct {
-	id        types.UID
-	timestamp uint64
-}
-
-type safeSlice struct {
-	data  []messageId
-	mutex sync.Mutex
-}
-
-func (s *safeSlice) Add(value messageId) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	s.data = append(s.data, value)
-}
-
-func (s *safeSlice) Len() int {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	return len(s.data)
-}
-
-func (s *safeSlice) Get(index int) messageId {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	return s.data[index]
-}
-
 func TestQueue_ShouldNotifyAboutHead(t *testing.T) {
-	ch := make(chan types.Message)
-	validation := func(message types.Message) bool {
+	ch := make(chan hpq.QueueElement)
+	validation := func(element hpq.QueueElement) bool {
 		return true
 	}
-	q := core.NewPriorityQueue(ch, validation)
+	q := hpq.NewPriorityQueue(context.TODO(), ch, validation)
 
 	msg := types.Message{
 		Timestamp:  0,
@@ -75,26 +31,23 @@ func TestQueue_ShouldNotifyAboutHead(t *testing.T) {
 	go func() {
 		defer group.Done()
 		select {
-		case v := <-ch:
-			if v.Identifier != msg.Identifier {
-				t.Errorf("Expected %s, received %s", msg.Identifier, v.Identifier)
+		case e := <-ch:
+			if e.Id() != msg.Identifier {
+				t.Errorf("Expected %s, received %s", msg.Identifier, e.Id())
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(util.DefaultTestTimeout):
 			t.Errorf("5 seconds without notification")
 		}
 	}()
-	q.Push(msg)
+	q.Push(wrapMessage(msg))
 	group.Wait()
 }
 
 func TestQueue_ShouldSetLowestOnHead(t *testing.T) {
-	ch := make(chan types.Message)
+	ch := make(chan hpq.QueueElement)
 	done := make(chan bool)
-	h := &holder{
-		timestamp: math.MaxUint64,
-		mutex:     sync.Mutex{},
-	}
-	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
+	h := util.NewHolder()
+	q := hpq.NewPriorityQueue(context.TODO(), ch, func(element hpq.QueueElement) bool {
 		return true
 	})
 
@@ -107,7 +60,7 @@ func TestQueue_ShouldSetLowestOnHead(t *testing.T) {
 			case <-done:
 				return
 			case v := <-ch:
-				h.Set(v.Timestamp)
+				h.Set(unwrapMessage(v).Timestamp)
 			}
 		}
 	}()
@@ -118,7 +71,7 @@ func TestQueue_ShouldSetLowestOnHead(t *testing.T) {
 			Timestamp:  uint64(i),
 			Identifier: types.UID(helper.GenerateUID()),
 		}
-		q.Push(msg)
+		q.Push(wrapMessage(msg))
 	}
 
 	// Insert from 6 to 10, this will not change the head.
@@ -127,7 +80,7 @@ func TestQueue_ShouldSetLowestOnHead(t *testing.T) {
 			Timestamp:  uint64(i),
 			Identifier: types.UID(helper.GenerateUID()),
 		}
-		q.Push(msg)
+		q.Push(wrapMessage(msg))
 	}
 
 	// Should wait so we know that the channel was called.
@@ -138,9 +91,9 @@ func TestQueue_ShouldSetLowestOnHead(t *testing.T) {
 		t.Errorf("Expected head 0, found %d", h.Get())
 	}
 
-	// Reset the value for the holder.
+	// Reset the value for the Holder.
 	h.Set(math.MaxUint64)
-	m1 := q.Pop().(types.Message)
+	m1 := unwrapMessage(q.Pop())
 	if m1.Timestamp != 0 {
 		t.Errorf("Expected timestamp 0, found %d", m1.Timestamp)
 	}
@@ -158,13 +111,10 @@ func TestQueue_ShouldSetLowestOnHead(t *testing.T) {
 }
 
 func TestQueue_ShouldHaveSmallestConcurrent(t *testing.T) {
-	ch := make(chan types.Message)
+	ch := make(chan hpq.QueueElement)
 	done := make(chan bool)
-	h := &holder{
-		timestamp: math.MaxUint64,
-		mutex:     sync.Mutex{},
-	}
-	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
+	h := util.NewHolder()
+	q := hpq.NewPriorityQueue(context.TODO(), ch, func(element hpq.QueueElement) bool {
 		return true
 	})
 
@@ -177,7 +127,7 @@ func TestQueue_ShouldHaveSmallestConcurrent(t *testing.T) {
 			case <-done:
 				return
 			case v := <-ch:
-				h.Set(v.Timestamp)
+				h.Set(unwrapMessage(v).Timestamp)
 			}
 		}
 	}()
@@ -189,7 +139,7 @@ func TestQueue_ShouldHaveSmallestConcurrent(t *testing.T) {
 				Timestamp:  uint64(i),
 				Identifier: types.UID(helper.GenerateUID()),
 			}
-			go q.Push(msg)
+			go q.Push(wrapMessage(msg))
 		}
 	}()
 
@@ -200,7 +150,7 @@ func TestQueue_ShouldHaveSmallestConcurrent(t *testing.T) {
 				Timestamp:  uint64(i),
 				Identifier: types.UID(helper.GenerateUID()),
 			}
-			go q.Push(msg)
+			go q.Push(wrapMessage(msg))
 		}
 	}()
 
@@ -212,9 +162,9 @@ func TestQueue_ShouldHaveSmallestConcurrent(t *testing.T) {
 		t.Errorf("Expected head 0, found %d", h.Get())
 	}
 
-	// Reset the value for the holder.
+	// Reset the value for the Holder.
 	h.Set(math.MaxUint64)
-	m1 := q.Pop().(types.Message)
+	m1 := unwrapMessage(q.Pop())
 	if m1.Timestamp != 0 {
 		t.Errorf("Expected timestamp 0, found %d", m1.Timestamp)
 	}
@@ -232,19 +182,13 @@ func TestQueue_ShouldHaveSmallestConcurrent(t *testing.T) {
 }
 
 func TestQueue_ShouldEnqueueAndDequeue(t *testing.T) {
-	ch := make(chan types.Message)
+	ch := make(chan hpq.QueueElement)
 	done := make(chan bool)
-	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
+	q := hpq.NewPriorityQueue(context.TODO(), ch, func(element hpq.QueueElement) bool {
 		return true
 	})
-	canAppend := holder{
-		timestamp: 0,
-		mutex:     sync.Mutex{},
-	}
-	read := safeSlice{
-		data:  []messageId{},
-		mutex: sync.Mutex{},
-	}
+	canAppend := util.NewHolder()
+	read := util.NewSafeSlice()
 
 	group := sync.WaitGroup{}
 	group.Add(1)
@@ -254,11 +198,12 @@ func TestQueue_ShouldEnqueueAndDequeue(t *testing.T) {
 			select {
 			case <-done:
 				return
-			case v := <-ch:
+			case e := <-ch:
 				if canAppend.Get() == 1 {
-					read.Add(messageId{
-						id:        v.Identifier,
-						timestamp: v.Timestamp,
+					v := unwrapMessage(e)
+					read.Add(util.MessageId{
+						Id:        v.Identifier,
+						Timestamp: v.Timestamp,
 					})
 				}
 			}
@@ -270,7 +215,7 @@ func TestQueue_ShouldEnqueueAndDequeue(t *testing.T) {
 			Timestamp:  uint64(i),
 			Identifier: types.UID(fmt.Sprintf("%d", i)),
 		}
-		go q.Push(msg)
+		go q.Push(wrapMessage(msg))
 	}
 
 	// Should wait so we know that the channel was called.
@@ -281,7 +226,7 @@ func TestQueue_ShouldEnqueueAndDequeue(t *testing.T) {
 	// The values were inserted in the desc order but
 	// must be retrieved on the asc order.
 	for i := 0; i <= 10; i++ {
-		recv := q.Pop().(types.Message)
+		recv := unwrapMessage(q.Pop())
 		if recv.Timestamp != uint64(i) {
 			t.Errorf("Expected timestamp %d, found %d", i, recv.Timestamp)
 		}
@@ -299,8 +244,8 @@ func TestQueue_ShouldEnqueueAndDequeue(t *testing.T) {
 	// The change on the head also happened on the asc order, from 1 to 10.
 	// The value 0 was the first head and was not added to the read slice.
 	for i := 1; i < read.Len(); i++ {
-		if read.Get(i-1).timestamp != uint64(i) {
-			t.Errorf("expected %d at %d, found %d", i, i-1, read.Get(i-1).timestamp)
+		if read.Get(i-1).Timestamp != uint64(i) {
+			t.Errorf("expected %d at %d, found %d", i, i-1, read.Get(i-1).Timestamp)
 		}
 	}
 
@@ -309,19 +254,13 @@ func TestQueue_ShouldEnqueueAndDequeue(t *testing.T) {
 }
 
 func TestQueue_ShouldEnqueueAndDequeueBasedOnId(t *testing.T) {
-	ch := make(chan types.Message)
+	ch := make(chan hpq.QueueElement)
 	done := make(chan bool)
-	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
+	q := hpq.NewPriorityQueue(context.TODO(), ch, func(element hpq.QueueElement) bool {
 		return true
 	})
-	canAppend := holder{
-		timestamp: 0,
-		mutex:     sync.Mutex{},
-	}
-	read := safeSlice{
-		data:  []messageId{},
-		mutex: sync.Mutex{},
-	}
+	canAppend := util.NewHolder()
+	read := util.NewSafeSlice()
 
 	group := sync.WaitGroup{}
 	group.Add(1)
@@ -331,11 +270,12 @@ func TestQueue_ShouldEnqueueAndDequeueBasedOnId(t *testing.T) {
 			select {
 			case <-done:
 				return
-			case v := <-ch:
+			case e := <-ch:
 				if canAppend.Get() == 1 {
-					read.Add(messageId{
-						id:        v.Identifier,
-						timestamp: v.Timestamp,
+					v := unwrapMessage(e)
+					read.Add(util.MessageId{
+						Id:        v.Identifier,
+						Timestamp: v.Timestamp,
 					})
 				}
 			}
@@ -347,7 +287,7 @@ func TestQueue_ShouldEnqueueAndDequeueBasedOnId(t *testing.T) {
 			Timestamp:  uint64(1),
 			Identifier: types.UID(fmt.Sprintf("%d", i)),
 		}
-		go q.Push(msg)
+		go q.Push(wrapMessage(msg))
 	}
 
 	// Should wait so we know that the channel was called.
@@ -358,7 +298,7 @@ func TestQueue_ShouldEnqueueAndDequeueBasedOnId(t *testing.T) {
 	// The values were inserted in the desc order but
 	// must be retrieved on the asc order.
 	for i := 0; i <= 9; i++ {
-		recv := q.Pop().(types.Message)
+		recv := unwrapMessage(q.Pop())
 		id := types.UID(fmt.Sprintf("%d", i))
 		if recv.Identifier != id {
 			t.Errorf("Expected id %s, found %s", id, recv.Identifier)
@@ -378,8 +318,8 @@ func TestQueue_ShouldEnqueueAndDequeueBasedOnId(t *testing.T) {
 	// The value 0 was the first head and was not added to the read slice.
 	for i := 1; i < read.Len(); i++ {
 		id := types.UID(fmt.Sprintf("%d", i))
-		if read.Get(i-1).id != id {
-			t.Errorf("expected %s at %d, found %s", id, i, read.Get(i-1).id)
+		if read.Get(i-1).Id != id {
+			t.Errorf("expected %s at %d, found %s", id, i, read.Get(i-1).Id)
 		}
 	}
 
@@ -388,14 +328,11 @@ func TestQueue_ShouldEnqueueAndDequeueBasedOnId(t *testing.T) {
 }
 
 func TestQueue_NotificationWillClearQueue(t *testing.T) {
-	ch := make(chan types.Message)
+	ch := make(chan hpq.QueueElement)
 	done := make(chan bool)
-	read := safeSlice{
-		data:  []messageId{},
-		mutex: sync.Mutex{},
-	}
-	q := core.NewPriorityQueue(ch, func(message types.Message) bool {
-		return message.State == types.S3
+	read := util.NewSafeSlice()
+	q := hpq.NewPriorityQueue(context.TODO(), ch, func(element hpq.QueueElement) bool {
+		return unwrapMessage(element).State == types.S3
 	})
 
 	group := sync.WaitGroup{}
@@ -406,10 +343,11 @@ func TestQueue_NotificationWillClearQueue(t *testing.T) {
 			select {
 			case <-done:
 				return
-			case v := <-ch:
-				read.Add(messageId{
-					id:        v.Identifier,
-					timestamp: v.Timestamp,
+			case e := <-ch:
+				v := unwrapMessage(e)
+				read.Add(util.MessageId{
+					Id:        v.Identifier,
+					Timestamp: v.Timestamp,
 				})
 				go q.Pop()
 			}
@@ -425,7 +363,7 @@ func TestQueue_NotificationWillClearQueue(t *testing.T) {
 			Timestamp:  uint64(i),
 			Identifier: types.UID(helper.GenerateUID()),
 		}
-		q.Push(msg)
+		q.Push(wrapMessage(msg))
 		added = append(added, msg)
 	}
 
@@ -436,7 +374,7 @@ func TestQueue_NotificationWillClearQueue(t *testing.T) {
 
 	for _, item := range added {
 		item.State = types.S3
-		q.Push(item)
+		q.Push(wrapMessage(item))
 	}
 
 	time.Sleep(50 * time.Millisecond)
@@ -445,8 +383,8 @@ func TestQueue_NotificationWillClearQueue(t *testing.T) {
 	}
 
 	for i := 0; i < read.Len(); i++ {
-		if read.Get(i).timestamp != uint64(i) {
-			t.Errorf("expected %d at %d, found %d", i, i, read.Get(i).timestamp)
+		if read.Get(i).Timestamp != uint64(i) {
+			t.Errorf("expected %d at %d, found %d", i, i, read.Get(i).Timestamp)
 		}
 	}
 
@@ -455,11 +393,11 @@ func TestQueue_NotificationWillClearQueue(t *testing.T) {
 }
 
 func TestQueue_ShouldKeepSmallestOnHead(t *testing.T) {
-	ch := make(chan types.Message)
-	validation := func(message types.Message) bool {
-		return message.State == types.S3
+	ch := make(chan hpq.QueueElement)
+	validation := func(element hpq.QueueElement) bool {
+		return unwrapMessage(element).State == types.S3
 	}
-	q := core.NewPriorityQueue(ch, validation)
+	q := hpq.NewPriorityQueue(context.TODO(), ch, validation)
 	theOriginal := types.Message{
 		Timestamp:  0,
 		Identifier: types.UID(helper.GenerateUID()),
@@ -471,38 +409,38 @@ func TestQueue_ShouldKeepSmallestOnHead(t *testing.T) {
 		defer group.Done()
 		select {
 		case v := <-ch:
-			if v.Identifier != theOriginal.Identifier {
-				t.Errorf("Expected %s, received %s", theOriginal.Identifier, v.Identifier)
+			if v.Id() != theOriginal.Identifier {
+				t.Errorf("Expected %s, received %s", theOriginal.Identifier, v.Id())
 			}
 		case <-time.After(time.Second):
 			t.Errorf("no notification received")
 		}
 	}()
 
-	q.Push(theOriginal)
+	q.Push(wrapMessage(theOriginal))
 
 	for i := 1; i < 20; i++ {
 		anyMessage := types.Message{
 			Timestamp:  uint64(i),
 			Identifier: types.UID(helper.GenerateUID()),
 		}
-		q.Push(anyMessage)
+		q.Push(wrapMessage(anyMessage))
 	}
 
 	theOriginal.State = types.S3
-	q.Push(theOriginal)
+	q.Push(wrapMessage(theOriginal))
 
 	group.Wait()
 }
 
 func TestQueue_ShouldNotifyCorrectlyWhenRemovedArbitraryItems(t *testing.T) {
-	ch := make(chan types.Message)
-	validation := func(message types.Message) bool {
-		return message.State == types.S3
+	ch := make(chan hpq.QueueElement)
+	validation := func(element hpq.QueueElement) bool {
+		return unwrapMessage(element).State == types.S3
 	}
 	ctx, cancel := context.WithCancel(context.TODO())
 	notificationCounter := int32(0)
-	q := core.NewPriorityQueue(ch, validation)
+	q := hpq.NewPriorityQueue(context.TODO(), ch, validation)
 	willBeRemoved := types.Message{
 		Timestamp:  0,
 		Identifier: "2-removed-uid",
@@ -522,24 +460,24 @@ func TestQueue_ShouldNotifyCorrectlyWhenRemovedArbitraryItems(t *testing.T) {
 		defer group.Done()
 		select {
 		case v := <-ch:
-			t.Logf("notification for %s", v.Identifier)
+			t.Logf("notification for %s", v.Id())
 			atomic.AddInt32(&notificationCounter, 0x1)
 		case <-ctx.Done():
 			return
 		}
 	}()
 
-	q.Push(willBeRemoved)
-	q.Push(theOriginal)
-	q.Push(shouldNotNotify)
+	q.Push(wrapMessage(willBeRemoved))
+	q.Push(wrapMessage(theOriginal))
+	q.Push(wrapMessage(shouldNotNotify))
 
 	shouldNotNotify.State = types.S3
-	q.Push(shouldNotNotify)
+	q.Push(wrapMessage(shouldNotNotify))
 
-	q.Remove(willBeRemoved.Identifier)
+	q.Remove(wrapMessage(willBeRemoved))
 
 	theOriginal.State = types.S3
-	q.Push(theOriginal)
+	q.Push(wrapMessage(theOriginal))
 
 	time.Sleep(150 * time.Millisecond)
 	notifications := atomic.LoadInt32(&notificationCounter)

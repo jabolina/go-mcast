@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/jabolina/go-mcast/pkg/mcast"
-	"github.com/jabolina/go-mcast/pkg/mcast/core"
+	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 )
 
@@ -54,7 +54,7 @@ type PeerUnity struct {
 	Last int
 
 	// Used to spawn and control go routines.
-	Invoker core.Invoker
+	Invoker helper.Invoker
 
 	Finish context.CancelFunc
 }

@@ -1,8 +1,8 @@
 package test
 
 import (
-	"github.com/jabolina/go-mcast/pkg/mcast/core"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/hpq"
 	"go.uber.org/goleak"
 	"sync"
 	"testing"
@@ -17,7 +17,7 @@ func Test_ShouldConcurrentlySet(t *testing.T) {
 	testSize := 50
 	var ids []string
 
-	c := core.NewTtlCache()
+	c := hpq.NewPurgatory()
 
 	insert := func(id string) {
 		defer wg.Done()
