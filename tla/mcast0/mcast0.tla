@@ -215,7 +215,7 @@ AssignTimestamp(self) ==
                                         ELSE Network[dest]
                             ELSE IF msg.s = dest
                                 THEN Network[dest] \cup {<<"S2", voted>>}
-                                ELSE Network[dest]]
+                                ELSE Network[dest] \ {<<state, msg>>}]
             /\ UNCHANGED <<Delivering, Delivered, Votes>>
 
 (***************************************************************************)
