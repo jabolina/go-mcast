@@ -38,8 +38,10 @@ ChooseProcess == CHOOSE x \in Processes : TRUE
 IsEven(x) == x % 2 = 0
 ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
 
+ChooseSubset == CHOOSE x \in SUBSET Processes: Cardinality(x) > 0
+
 \* Contains all messages the system will exchange.
-ToSend == { [ id |-> id, d |-> Processes, ts |-> 0, s |-> ChooseProcess ] : id \in Messages }
+ToSend == { [ id |-> id, d |-> ChooseSubset, ts |-> 0, s |-> ChooseProcess ] : id \in Messages }
 
 \* This set will hold information about GMCast calls that were made. 
 \* But since only a single process actually call GMCast, this set will 
@@ -156,7 +158,7 @@ InitProtocol ==
 InitHelpers ==
     \* This is used to simulate network calls. The network is started
     \* with messages on state "S1" that are ready to be processed.
-    /\ Network = [ i \in Processes |-> {<<"S1", m>> : m \in ToSend} ]
+    /\ Network = [ i \in Processes |-> {<<"S1", m>> : m \in {x \in ToSend: i \in x.d}} ]
 
     \* This structure is holding the votes the processes cast for each
     \* message on the system. Since any process can be the "coordinator",
@@ -190,30 +192,31 @@ Init == InitProtocol /\ InitHelpers
 (*                                                                         *)
 (***************************************************************************)
 AssignTimestamp(self) ==
-    /\ \E <<state, msg>> \in Network[self]: state = "S1"
+    \E <<state, msg>> \in Network[self]: 
+        /\ state = "S1"
+        /\ \/ /\ \E prev \in PreviousMsgs[self]: Conflict(msg, prev)
+              /\ K' = [K EXCEPT ![self] = K[self] + 1]
+              /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![self] = {msg}]
+           \/ /\ \A prev \in PreviousMsgs[self]: ~Conflict(msg, prev)
+              /\ K' = [K EXCEPT ![self] = K[self]]
+              /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![self] = PreviousMsgs[self] \cup {msg}]
         /\ LET
-            conflict == \E prev \in PreviousMsgs[self]: Conflict(msg, prev)
+            built == [ id |-> msg.id, d |-> msg.d, ts |-> K'[self] ]
+            voted == [ id |-> msg.id, d |-> msg.d, s |-> msg.s, ts |-> K'[self], o |-> self ]
             IN
-            \* If exists a message on the previous set that conflicts with
-            \* the current message we advance the process clock. This approach
-            \* helps reducing the convoy effect, since the messages timestamp,
-            \* i.e. sequence number only increases when is needed, so we try to
-            \* keep the timestamp to the possible minimum.
-            /\ \/ /\ conflict
-                    /\ K' = [K EXCEPT ![self] = K[self] + 1]
-                    /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![self] = {msg}]
-                \/ /\ ~conflict
-                    /\ K' = [K EXCEPT ![self] = K[self]]
-                    /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![self] = PreviousMsgs[self] \cup {msg}]
-            /\ LET
-                built == [ id |-> msg.id, d |-> msg.d, ts |-> K'[self] ]
-                voted == [ id |-> msg.id, d |-> msg.d, s |-> msg.s, ts |-> K'[self], o |-> self ]
-                IN
-                /\ Pending' = [Pending EXCEPT ![self] = Pending[self] \cup {built}]
-                /\ Network' = [dest \in Processes |-> IF self = dest 
-                                    THEN (Network[self] \ {<<state, msg>>}) \cup {<<"S2", voted>>} 
-                                    ELSE Network[dest] \cup {<<"S2", voted>>}]
-                /\ UNCHANGED <<Delivering, Delivered, Votes>>
+            /\ Pending' = [Pending EXCEPT ![self] = Pending[self] \cup {built}]
+            /\ Network' = [dest \in Processes |-> IF dest \in msg.d THEN
+                                IF self = dest /\ msg.s = self
+                                THEN (Network[self] \ {<<state, msg>>}) \cup {<<"S2", voted>>}
+                                ELSE IF msg.s = dest
+                                    THEN Network[dest] \cup {<<"S2", voted>>}
+                                    ELSE IF self = dest
+                                        THEN  Network[dest] \ {<<state, msg>>}
+                                        ELSE Network[dest]
+                            ELSE IF msg.s = dest
+                                THEN Network[dest] \cup {<<"S2", voted>>}
+                                ELSE Network[dest]]
+            /\ UNCHANGED <<Delivering, Delivered, Votes>>
 
 (***************************************************************************)
 (*                                                                         *)
@@ -227,21 +230,23 @@ AssignTimestamp(self) ==
 (*                                                                         *)
 (***************************************************************************)
 ComputeSeqNumber(self) ==
-    /\ \E <<state, msg>> \in {<<s, x>> \in Network[self]: s = "S2" /\ x.s = self}:
-        /\ LET
+    \E <<state, msg>> \in {<<s, x>> \in Network[self]: s = "S2" /\ x.s = self}:
+        LET
             votedTs == {<<m.o, m.ts>> : m \in {x \in Votes[self] \cup {msg}: x.id = msg.id}}
-            IN
+        IN
             /\ \/ /\ Cardinality(votedTs) = Cardinality(msg.d)
-                    /\ LET
-                        built == CreateMessage(msg, Max({x[2] : x \in votedTs}))
-                        IN
-                        /\ Votes' = [Votes EXCEPT ![self] = {x \in Votes[self] : x.id /= msg.id}]
-                        /\ Network' = [dest \in Processes |-> (Network[dest] \ {<<state, msg>>}) \cup {<<"S3", built>>}]
-                        /\ UNCHANGED <<K, PreviousMsgs, Pending, Delivering, Delivered>>
-                \/ /\ Cardinality(votedTs) < Cardinality(msg.d)
-                    /\ Votes' = [Votes EXCEPT ![self] = Votes[self] \cup {msg}]
-                    /\ Network' = [dest \in Processes |-> (Network[dest] \ {<<state, msg>>})]
-                    /\ UNCHANGED <<K, PreviousMsgs, Pending, Delivering, Delivered>>
+                  /\ LET
+                      built == CreateMessage(msg, Max({x[2] : x \in votedTs}))
+                     IN
+                      /\ Votes' = [Votes EXCEPT ![self] = {x \in Votes[self] : x.id /= msg.id}]
+                      /\ Network' = [dest \in Processes |-> IF dest \in msg.d
+                                        THEN (Network[dest] \ {<<state, msg>>}) \cup {<<"S3", built>>}
+                                        ELSE Network[dest]]
+                      /\ UNCHANGED <<K, PreviousMsgs, Pending, Delivering, Delivered>>
+               \/ /\ Cardinality(votedTs) < Cardinality(msg.d)
+                  /\ Votes' = [Votes EXCEPT ![self] = Votes[self] \cup {msg}]
+                  /\ Network' = [Network EXCEPT ![self] = @ \ {<<state, msg>>}]
+                  /\ UNCHANGED <<K, PreviousMsgs, Pending, Delivering, Delivered>>
 
 (***************************************************************************)
 (*                                                                         *)
@@ -259,18 +264,18 @@ ComputeSeqNumber(self) ==
 (***************************************************************************)
 AssignSeqNumber(self) ==
     /\ \E m1 \in Pending[self] :
-        \E <<state, m2>> \in Network[self] : state = "S3" /\ m2.id = m1.id
+        \E <<state, m2>> \in Network[self] :
+            /\ state = "S3" 
+            /\ m2.id = m1.id
             /\ \/ /\ m2.ts > K[self]
-                    /\ \/ /\ \E prev \in PreviousMsgs[self]: 
-                            /\ Conflict(m2, prev)
-                            /\ K' = [K EXCEPT ![self] = m2.ts + 1]
-                            /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![self] = {}]
-                        \/ /\ \A prev \in PreviousMsgs[self]: 
-                            /\ ~Conflict(m2, prev)
-                            /\ K' = [K EXCEPT ![self] = m2.ts]
-                            /\ UNCHANGED PreviousMsgs
-                \/ /\ m2.ts <= K[self]
-                    /\ UNCHANGED <<K, PreviousMsgs>>
+                  /\ \/ /\ \E prev \in PreviousMsgs[self]: Conflict(m2, prev)
+                        /\ K' = [K EXCEPT ![self] = m2.ts + 1]
+                        /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![self] = {}]
+                     \/ /\ \A prev \in PreviousMsgs[self]: ~Conflict(m2, prev)
+                        /\ K' = [K EXCEPT ![self] = m2.ts]
+                        /\ UNCHANGED PreviousMsgs
+               \/ /\ m2.ts <= K[self]
+                  /\ UNCHANGED <<K, PreviousMsgs>>
             /\ Pending' = [Pending EXCEPT ![self] = @ \ {m1}]
             /\ Delivering' = [Delivering EXCEPT ![self] = Delivering[self] \cup {m2}]
             /\ Network' = [Network EXCEPT ![self] = @ \ {<<state, m2>>}]
@@ -295,23 +300,24 @@ AssignSeqNumber(self) ==
 (*                                                                         *)
 (***************************************************************************)
 DoDeliver(self) ==
-    /\ \E m \in {x \in Delivering[self]: \A y \in (Delivering[self] \cup Pending[self]) \ {x}: 
-                    /\ x.ts <= y.ts
-                    /\ \/ /\ Conflict(x, y)
-                            /\ \/ /\ x.id > y.id
-                                    /\ x.ts < y.ts
-                                    /\ y \in Delivering[self]
-                                \/ /\ x.id < y.id
-                        \/ /\ ~Conflict(x, y)}:
+    /\ \E m \in {x \in Delivering[self]:
+        \A y \in (Delivering[self] \cup Pending[self]) \ {x}: 
+            /\ x.ts <= y.ts
+            /\ \/ /\ Conflict(x, y)
+                  /\ \/ /\ x.id > y.id
+                        /\ x.ts < y.ts
+                        /\ y \in Delivering[self]
+                     \/ /\ x.id < y.id
+               \/ /\ ~Conflict(x, y)}:
         LET
             T == {m} \cup Delivering[self] \cup Pending[self]
             G == {x \in Delivering[self]: \A y \in T \ {x}: ~Conflict(x, y)}
             F == {m} \cup G
             index == Cardinality(Delivered[self])
-            IN
-                /\ Delivering' = [Delivering EXCEPT ![self] = @ \ F]
-                /\ Delivered' = [Delivered EXCEPT ![self] = Delivered[self] \cup {<<index, F>>}]
-                /\ UNCHANGED <<Network, Votes, Pending, PreviousMsgs, K>>
+        IN
+            /\ Delivering' = [Delivering EXCEPT ![self] = @ \ F]
+            /\ Delivered' = [Delivered EXCEPT ![self] = Delivered[self] \cup {<<index, F>>}]
+            /\ UNCHANGED <<Network, Votes, Pending, PreviousMsgs, K>>
 
 -----------------------------------------------------------------------------
 Step(self) ==
