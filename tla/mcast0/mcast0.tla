@@ -300,21 +300,19 @@ AssignSeqNumber(self) ==
 (*                                                                         *)
 (***************************************************************************)
 DoDeliver(self) ==
-    /\ \E m \in {x \in Delivering[self]:
-        \A y \in (Delivering[self] \cup Pending[self]) \ {x}: 
-            /\ x.ts <= y.ts
-            /\ \/ /\ Conflict(x, y)
-                  /\ \/ /\ x.id > y.id
-                        /\ x.ts < y.ts
-                        /\ y \in Delivering[self]
-                     \/ /\ x.id < y.id
-               \/ /\ ~Conflict(x, y)}:
-        LET
-            T == {m} \cup Delivering[self] \cup Pending[self]
+    \E m \in Delivering[self]:
+        /\ \A n \in (Delivering[self] \cup Pending[self]) \ {m}:
+            /\ m.ts <= n.ts
+            /\ \/ /\ ~Conflict(m, n)
+               \/ /\ Conflict(m, n)
+                  /\ \/ /\ m.id < n.id
+                     \/ /\ m.id > n.id /\ m.ts < n.ts /\ n \in Delivering[self]
+        /\ LET
+            T == Delivering[self] \cup Pending[self]
             G == {x \in Delivering[self]: \A y \in T \ {x}: ~Conflict(x, y)}
             F == {m} \cup G
             index == Cardinality(Delivered[self])
-        IN
+           IN
             /\ Delivering' = [Delivering EXCEPT ![self] = @ \ F]
             /\ Delivered' = [Delivered EXCEPT ![self] = Delivered[self] \cup {<<index, F>>}]
             /\ UNCHANGED <<Network, Votes, Pending, PreviousMsgs, K>>
