@@ -1,6 +1,6 @@
 --------------------    MODULE mcast0    --------------------
 
-EXTENDS Naturals, FiniteSets, Sequences
+EXTENDS Naturals, FiniteSets
 
 CONSTANTS 
     \* `NPROCESS` is the number of nodes that the system will have.
@@ -41,7 +41,7 @@ ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
 ChooseSubset == CHOOSE x \in SUBSET Processes: Cardinality(x) > 0
 
 \* Contains all messages the system will exchange.
-ToSend == { [ id |-> id, d |-> ChooseSubset, ts |-> 0, s |-> ChooseProcess ] : id \in Messages }
+ToSend == { [ id |-> id, d |-> Processes, ts |-> 0, s |-> ChooseProcess ] : id \in Messages }
 
 \* This set will hold information about GMCast calls that were made. 
 \* But since only a single process actually call GMCast, this set will 
@@ -303,10 +303,8 @@ DoDeliver(self) ==
     \E m \in Delivering[self]:
         /\ \A n \in (Delivering[self] \cup Pending[self]) \ {m}:
             /\ m.ts <= n.ts
-            /\ \/ /\ ~Conflict(m, n)
-               \/ /\ Conflict(m, n)
-                  /\ \/ /\ m.id < n.id
-                     \/ /\ m.id > n.id /\ m.ts < n.ts /\ n \in Delivering[self]
+            /\ \/ ~Conflict(m, n)
+               \/ m.id < n.id \/ m.ts < n.ts
         /\ LET
             T == Delivering[self] \cup Pending[self]
             G == {x \in Delivering[self]: \A y \in T \ {x}: ~Conflict(x, y)}
