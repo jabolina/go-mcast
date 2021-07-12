@@ -2,6 +2,7 @@ package mcast
 
 import (
 	"github.com/jabolina/go-mcast/pkg/mcast/definition"
+	"github.com/jabolina/go-mcast/pkg/mcast/output"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"time"
 )
@@ -26,7 +27,7 @@ func DefaultConfiguration(name types.Partition) *types.Configuration {
 		Partition:      name,
 		Version:        types.LatestProtocolVersion,
 		Conflict:       &definition.AlwaysConflict{},
-		Storage:        definition.NewDefaultStorage(),
+		Storage:        output.NewDefaultStorage(),
 		Logger:         definition.NewDefaultLogger(),
 		DefaultTimeout: time.Second,
 	}

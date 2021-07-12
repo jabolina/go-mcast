@@ -3,39 +3,24 @@ package core
 import (
 	"context"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
-	"github.com/jabolina/go-mcast/pkg/mcast/hpq"
+	"github.com/jabolina/go-mcast/pkg/mcast/output"
+	"github.com/jabolina/go-mcast/pkg/mcast/protocol"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"io"
-	"sync"
 )
 
-// When sending a message the peer must choose
-// which kind of message will be emitted.
-type emission = uint
-
-const (
-	// When emitting a message only internally inside
-	// the partition. This is used when the message is
-	// on State S0 or S2.
-	inner emission = iota
-
-	// Used when exchanging the message Timestamp between
-	// the other partitions that participate on the protocol.
-	outer
-)
-
-// Interface that a single peer must implement.
+// PartitionPeer interface that a single peer must implement.
 type PartitionPeer interface {
 	io.Closer
 
-	// Issues a request to the Generic Multicast protocol.
+	// Command Issues a request to the Generic Multicast protocol.
 	//
 	// This method does not work in the request-response model
 	// so after the message is committed onto the unity
 	// a response will be sent back through the channel.
 	Command(message types.Message) error
 
-	// A fast read directly into the storage.
+	// FastRead reads directly into the storage.
 	// Since all peers will be consistent, the read
 	// operations can be done directly into the storage.
 	//
@@ -44,14 +29,11 @@ type PartitionPeer interface {
 	FastRead() types.Response
 }
 
-// This structure defines a single peer for the protocol.
+// Peer is a structure that defines a single peer for the protocol.
 // A group of peers will form a single partition, so,
 // a single peer is not fault tolerant, but a partition
 // will be.
 type Peer struct {
-	// Mutex for synchronizing operations.
-	mutex *sync.Mutex
-
 	// Used to spawn and control all go routines.
 	invoker helper.Invoker
 
@@ -65,41 +47,15 @@ type Peer struct {
 	// Transport used for unreliable communication.
 	unreliableTransport Transport
 
-	// The peer clock for defining a message timestamp.
-	clock LogicalClock
-
-	// The peer received queue, to order the requests.
-	rqueue hpq.IRQueue
-
-	// Previous priorityQueue for the peer.
-	previousSet PreviousSet
-
-	// Process responsible to deliver messages on the
-	// right order.
-	deliver Deliverable
+	protocol *protocol.Protocol
 
 	// Holds the peer logger, this will be used
 	// for reads only, all writes will come from the
 	// state machine when a commit is applied.
-	logAbstraction types.Log
-
-	// Conflict relationship for ordering the messages.
-	conflict types.ConflictRelationship
+	logAbstraction output.Log
 
 	// Peer logger.
 	logger types.Logger
-
-	// When external requests exchange timestamp,
-	// this will hold the received values.
-	received *Memo
-
-	// When a message state is updated locally
-	// and need to trigger the process again.
-	updated chan types.Message
-
-	// Channel to receive messages that are ready to
-	// be delivered.
-	delivering chan hpq.ElementNotification
 
 	// The peer cancellable context.
 	context context.Context
@@ -108,9 +64,13 @@ type Peer struct {
 	finish context.CancelFunc
 }
 
-// Creates a new peer for the given configuration and
+// NewPeer creates a new peer for the given configuration and
 // start polling for new messages.
-func NewPeer(configuration *types.PeerConfiguration, oracle types.Oracle, logger types.Logger) (PartitionPeer, error) {
+func NewPeer(
+	configuration *types.PeerConfiguration,
+	oracle types.Oracle,
+	logger types.Logger,
+	invoker helper.Invoker) (PartitionPeer, error) {
 	reliableTransport, err := NewReliableTransport(configuration, logger)
 	if err != nil {
 		return nil, err
@@ -121,43 +81,36 @@ func NewPeer(configuration *types.PeerConfiguration, oracle types.Oracle, logger
 		return nil, err
 	}
 
-	logStructure := types.NewLogStructure(configuration.Storage)
-	deliver, err := NewDeliver(string(configuration.Name), logger, logStructure)
+	previousSet := protocol.NewPreviousSet(configuration.Conflict)
+	logStructure := output.NewLogStructure(configuration.Storage)
+	deliver, err := output.NewDeliver(string(configuration.Name), logger, logStructure)
 	if err != nil {
 		configuration.Cancel()
 		return nil, err
 	}
 
+	pl := protocol.NewProcessProtocol(configuration.Commit, configuration.Ctx, previousSet, deliver, invoker)
 	p := &Peer{
-		mutex:               &sync.Mutex{},
-		invoker:             helper.InvokerInstance(),
+		invoker:             invoker,
 		configuration:       configuration,
 		reliableTransport:   reliableTransport,
 		unreliableTransport: unreliableTransport,
-		clock:               NewClock(),
-		previousSet:         NewPreviousSet(),
-		deliver:             deliver,
 		logAbstraction:      logStructure,
-		conflict:            configuration.Conflict,
 		logger:              logger,
-		received:            NewMemo(),
-		updated:             make(chan types.Message),
-		delivering:          make(chan hpq.ElementNotification),
+		protocol:            pl,
 		context:             configuration.Ctx,
 		finish:              configuration.Cancel,
 	}
-	p.rqueue = hpq.NewReceivedQueue(configuration.Ctx, p.delivering, p.conflict)
 	p.invoker.Spawn(p.poll)
-	p.invoker.Spawn(p.doDeliver)
 	return p, nil
 }
 
-// Implements the PartitionPeer interface.
+// Command Implements the PartitionPeer interface.
 func (p *Peer) Command(message types.Message) error {
 	return p.reliableTransport.Broadcast(message)
 }
 
-// Implements the PartitionPeer interface.
+// FastRead Implements the PartitionPeer interface.
 func (p *Peer) FastRead() types.Response {
 	res := types.Response{
 		Success: false,
@@ -180,11 +133,10 @@ func (p *Peer) FastRead() types.Response {
 	return res
 }
 
-// Implements the PartitionPeer interface.
+// Close Implements the PartitionPeer interface.
 func (p *Peer) Close() error {
-	defer close(p.updated)
 	p.finish()
-	if err := p.rqueue.Close(); err != nil {
+	if err := p.protocol.Close(); err != nil {
 		return err
 	}
 	if err := p.reliableTransport.Close(); err != nil {
@@ -204,13 +156,6 @@ func (p *Peer) poll() {
 		select {
 		case <-p.context.Done():
 			return
-		case m, ok := <-p.updated:
-			if !ok {
-				return
-			}
-			p.invoker.Spawn(func() {
-				p.send(m, types.Initial, inner)
-			})
 		case m, ok := <-p.reliableTransport.Listen():
 			if !ok {
 				return
@@ -227,16 +172,11 @@ func (p *Peer) poll() {
 	}
 }
 
-// Process the received message from the reliableTransport.
-// First verify if the current configured peer can handle
-// this request version.
-//
-// If the process can be handled, the message is then processed,
-// the message must be of type initial or of type external.
-//
-// After processing the message, updates the value on the
-// received queue and then trigger the deliver method to
-// start commit on the state machine.
+// Start processing the received message using the protocol. First verify if the current
+// configured peer can handle this request version.
+// If the process can be handled, the message is then processed by the protocol that will
+// return what must be done next with the message.
+// The processing for the next step can be done detached.
 func (p *Peer) process(message types.Message) {
 	header := message.Extract()
 	if header.ProtocolVersion != p.configuration.Version {
@@ -244,193 +184,50 @@ func (p *Peer) process(message types.Message) {
 		return
 	}
 
-	if !p.rqueue.Acceptable(message) {
+	nextStep := p.protocol.ReceiveMessage(&message)
+	p.invoker.Spawn(func() {
+		p.handleProtocolNextStep(message, nextStep)
+	})
+}
+
+func (p *Peer) handleProtocolNextStep(message types.Message, step protocol.Step) {
+	switch step {
+	case protocol.ExchangeInternal:
+		p.invoker.Spawn(func() {
+			p.send(message, types.ABCast)
+		})
+	case protocol.ExchangeAll:
+		p.invoker.Spawn(func() {
+			p.send(message, types.Network)
+		})
+	default:
 		return
 	}
-	enqueue := true
-	sState, sTs := message.State, message.Timestamp
-	defer func() {
-		eState, eTs := message.State, message.Timestamp
-		insert := enqueue && p.rqueue.Append(message)
-		p.logger.Debugf("%s - (%d, %d) -> (%d, %d) %d %v @ %s <-> %s", message.Identifier, sState, sTs, eState, eTs, message.Header.Type, insert, p.configuration.Name, message.From)
-		if insert {
-			p.invoker.Spawn(func() {
-				p.reprocessMessage(message)
-			})
-		}
-	}()
-
-	switch header.Type {
-	case types.Initial:
-		p.processInitialMessage(&message)
-	case types.External:
-		enqueue = p.exchangeTimestamp(&message)
-	default:
-		p.logger.Warnf("unknown message type %d", header.Type)
-		enqueue = false
-	}
 }
 
-// After the process GB-Deliver m, if m.State is equals to S0, firstly the
-// algorithm check if m conflict with any other message on previousSet,
-// if so, the process p increment its local clock and empty the previousSet.
-// At last, the message m receives its group timestamp and is added to
-// previousSet maintaining the information about conflict relations to
-// future messages.
-//
-// On the second part of this procedure, the process p checks if m.Destination
-// has only one destination, if so, message m can jump to state S3, since its
-// not necessary to exchange timestamp information between others destination
-// groups and a second consensus can be avoided due to group timestamp is now a
-// final timestamp.
-//
-// Otherwise, for messages on state S0, we priorityQueue the group timestamp to the value
-// of the process clock, update m.State to S1 and send m to all others groups in
-// m.Destination. On the other hand, to messages on state S2, the message has the
-// final timestamp, thus m.State can be updated to the final state S3 and, if
-// m.Timestamp is greater than local clock value, the clock is updated to hold
-// the received timestamp and the previousSet can be cleaned.
-func (p *Peer) processInitialMessage(message *types.Message) {
-	if message.State == types.S0 {
-		if p.conflict.Conflict(*message, p.previousSet.Snapshot()) {
-			p.clock.Tick()
-			p.previousSet.Clear()
-		}
-		message.Timestamp = p.clock.Tock()
-		p.previousSet.Append(*message)
-	}
-
-	if len(message.Destination) > 1 {
-		if message.State == types.S0 {
-			message.State = types.S1
-			message.Timestamp = p.clock.Tock()
-			p.invoker.Spawn(func() {
-				p.send(*message, types.External, outer)
-			})
-		} else if message.State == types.S2 {
-			message.State = types.S3
-			if message.Timestamp > p.clock.Tock() {
-				p.clock.Leap(message.Timestamp)
-				p.previousSet.Clear()
-			}
-		}
-	} else {
-		message.Timestamp = p.clock.Tock()
-		message.State = types.S3
-	}
-}
-
-// When a message m has more than one destination group, the destination groups
-// have to exchange its timestamps to decide the final timestamp to m.
-// Thus, after receiving all other timestamp values, a temporary variable tsm is
-// agree upon the maximum timestamp value received.
-//
-// Once the algorithm have select the tsm value, the process checks if m.Timestamp
-// is greater or equal to tsm, in positive case, a second consensus instance can be
-// avoided and, the state of m can jump directly to state S3 since the group local
-// clock is already bigger than tsm.
-func (p *Peer) exchangeTimestamp(message *types.Message) bool {
-	if p.alreadyExchangedTimestamps(*message) {
-		return false
-	}
-
-	used := p.received.Insert(message.Identifier, message.From, message.Timestamp)
-	values := p.received.Read(message.Identifier)
-	if len(values) < len(message.Destination) {
-		return used
-	}
-
-	tsm := helper.MaxValue(values)
-	if message.Timestamp >= tsm {
-		message.State = types.S3
-	} else {
-		message.Timestamp = tsm
-		message.State = types.S2
-	}
-	return true
-}
-
-// Used to send a request using the reliableTransport API.
-// Used for request across partitions, when exchanging the
-// message timestamp or when broadcasting the message internally
+// Used to send a request using the reliableTransport API. Used for request across partitions,
+// when exchanging the message timestamp or when broadcasting the message internally
 // inside a partition.
-func (p *Peer) send(message types.Message, t types.MessageType, emission emission) {
+func (p *Peer) send(message types.Message, t types.MessageType) {
 	message.Header.Type = t
 	message.From = p.configuration.Partition
 	var destination []types.Partition
-	if emission == inner {
+	if t == types.ABCast {
 		destination = append(destination, p.configuration.Partition)
 	} else {
 		destination = append(destination, message.Destination...)
 	}
 
 	for _, partition := range destination {
-		if err := p.dispatch(message, partition, emission); err != nil {
+		if err := p.dispatch(message, partition, t); err != nil {
 			p.logger.Errorf("error dispatch. %v. dest: %s -> %#v", err, partition, message)
 		}
 	}
 }
 
-func (p *Peer) dispatch(message types.Message, partition types.Partition, emission emission) error {
-	if emission == outer {
+func (p *Peer) dispatch(message types.Message, partition types.Partition, t types.MessageType) error {
+	if t == types.Network {
 		return p.unreliableTransport.Unicast(message, partition)
 	}
 	return p.reliableTransport.Unicast(message, partition)
-}
-
-func (p *Peer) alreadyExchangedTimestamps(message types.Message) bool {
-	values := p.received.Read(message.Identifier)
-	return len(values) == len(message.Destination)
-}
-
-// Verify if the given message needs to be resend
-// to the processes inside a partition.
-// This methods receives the UID instead of the message
-// object, so this ensures that the r_queue and the
-// protocols see the same object state.
-func (p *Peer) reprocessMessage(message types.Message) {
-	if message.State == types.S2 {
-		p.publishToReprocess(message)
-	}
-
-	if message.State == types.S3 {
-		p.rqueue.GenericDeliver(message)
-	}
-}
-
-func (p *Peer) publishToReprocess(message types.Message) {
-	select {
-	case <-p.context.Done():
-		return
-	case p.updated <- message:
-		return
-	}
-}
-
-// The doDeliver method to commit the element on the head
-// of the rqueue. Since the rqueue will be already sorted,
-// both by the timestamp and by the message UID, we have
-// the guarantee that when a message on the head is on the
-// state S3 it will be the right message to be delivered.
-//
-// Since a message on state S3 already has its final timestamp,
-// and since the message is on the head of the rqueue it also
-// contains the lowest timestamp, so the message is ready to
-// be delivered, which means, it will be committed on the
-// local peer state machine.
-func (p *Peer) doDeliver() {
-	for req := range p.delivering {
-		m, isGenericDeliver := req.Value.(types.Message), req.OnApply
-		select {
-		case p.configuration.Commit <- p.deliver.Commit(m, isGenericDeliver):
-			break
-		default:
-			break
-		}
-
-		p.invoker.Spawn(func() {
-			p.received.Remove(m.Identifier)
-			p.rqueue.Remove(m)
-		})
-	}
 }

@@ -8,12 +8,12 @@ import (
 	"sync"
 )
 
-// IRQueue is the interface responsible for interacting with
+// Memory is the interface responsible for interacting with
 // the received messages.
-type IRQueue interface {
+type Memory interface {
 	io.Closer
 
-	// Acceptable verify if the given interface is eligible to be
+	// Acceptable conflict if the given interface is eligible to be
 	// added to the queue.
 	Acceptable(types.Message) bool
 
@@ -24,9 +24,14 @@ type IRQueue interface {
 	// Remove the given item from the queue.
 	Remove(types.Message)
 
+	// Exists is a function to simulate the mathematical exists.
+	// Can be used to conflict if exists an element that the predicate
+	// is true.
+	Exists(func(types.Message) bool) bool
+
 	// GenericDeliver is what turns the protocol into its generic
 	// form, where not all messages are sorted.
-	// This will verify if the given Message conflict with other
+	// This will conflict if the given Message conflict with other
 	// messages and will delivery if possible.
 	//
 	// A Message will only be able to be delivered if is on state
@@ -41,7 +46,7 @@ type ElementNotification struct {
 
 type PeerQueueManager struct {
 	ctx       context.Context
-	conflict  types.ConflictRelationship
+	conflict  func(types.Message) bool
 	eden      Eden
 	purgatory Purgatory
 	notify    chan<- ElementNotification
@@ -49,10 +54,10 @@ type PeerQueueManager struct {
 	mutex     *sync.Mutex
 }
 
-func NewReceivedQueue(ctx context.Context, notify chan<- ElementNotification, conflict types.ConflictRelationship) IRQueue {
+func NewReceivedQueue(ctx context.Context, notify chan<- ElementNotification, verify func(types.Message) bool) Memory {
 	p := &PeerQueueManager{
 		ctx:       ctx,
-		conflict:  conflict,
+		conflict:  verify,
 		purgatory: NewPurgatory(),
 		notify:    notify,
 		flag:      &helper.Flag{},
@@ -106,6 +111,19 @@ func (p *PeerQueueManager) Remove(message types.Message) {
 	p.eden.Dequeue(message)
 }
 
+func (p *PeerQueueManager) Exists(f func(types.Message) bool) bool {
+	var response bool
+	p.eden.Apply(func(messages []types.Message) {
+		for _, message := range messages {
+			if f(message) {
+				response = true
+				return
+			}
+		}
+	})
+	return response
+}
+
 func (p *PeerQueueManager) GenericDeliver(message types.Message) {
 	if !p.Acceptable(message) {
 		return
@@ -113,6 +131,13 @@ func (p *PeerQueueManager) GenericDeliver(message types.Message) {
 
 	p.eden.Apply(func(current []types.Message) {
 		var messages []types.Message
+
+		// If the current given message does not conflict with any other,
+		// it can also be added to be delivered.
+		if !p.conflict(message) {
+			messages = append(messages, message)
+		}
+
 		// This will copy the slice at the time of read.
 		// This method does not guarantee that we have the
 		// latest object version, the elements can change after
@@ -120,18 +145,20 @@ func (p *PeerQueueManager) GenericDeliver(message types.Message) {
 		// Since the elements that will be delivered here could
 		// be delivered at any order, this should not be a problem.
 		for _, value := range current {
-			if value.Identifier != message.Identifier {
+			if value.State == types.S3 && value.Identifier != message.Identifier && !p.conflict(value) {
 				messages = append(messages, value)
 			}
 		}
 
-		// If the Message do not conflict with any other Message
-		// then it can be delivered directly.
-		if !p.conflict.Conflict(message, messages) && p.purgatory.Set(string(message.Identifier)) {
-			p.notifyElement(ElementNotification{
-				Value:   message,
-				OnApply: true,
-			})
+		for _, m := range messages {
+			// If the Message do not conflict with any other Message
+			// then it can be delivered directly.
+			if p.purgatory.Set(string(m.Identifier)) {
+				p.notifyElement(ElementNotification{
+					Value:   m,
+					OnApply: true,
+				})
+			}
 		}
 	})
 }

@@ -31,7 +31,7 @@ type ShardElement interface {
 // peer to hold information about processing messages. Internally
 // will be used a priority queue to retain the messages, using this
 // approach when can have as faster delivery process, since we
-// need only to verify the Message on the head of the queue,
+// need only to conflict the Message on the head of the queue,
 // and since the data structure is a priority queue, we will have a
 // sorted collection, with the element at the head the probably next
 // element to be delivered.
@@ -47,7 +47,7 @@ type ShardElement interface {
 // the lowest timestamp, when the head arrives on State S3 it will
 // be delivered exactly once. Using the implemented Q,
 // we will receive updates about changes on the head of the queue,
-// so the PriorityQueueShard responsibility will be to verify if the Value was
+// so the PriorityQueueShard responsibility will be to conflict if the Value was
 // no previously applied and send back through the deliver callback.
 type PriorityQueueShard struct {
 	// The parent context, this will be used to shutdown the
@@ -111,7 +111,7 @@ func (r *PriorityQueueShard) poll() {
 	}
 }
 
-// Will verify if the Message can be added into the priorityQueue.
+// Will conflict if the Message can be added into the priorityQueue.
 // The cache will hold messages that already removed and
 // cannot be inserted again.
 func (r *PriorityQueueShard) verifyAndInsert(element ShardElement) bool {

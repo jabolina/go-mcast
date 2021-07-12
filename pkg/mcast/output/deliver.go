@@ -1,4 +1,4 @@
-package core
+package output
 
 import (
 	"errors"
@@ -10,28 +10,28 @@ var (
 	ErrCommandUnknown = errors.New("unknown command applied into state machine")
 )
 
-// Interface to deliver messages.
+// Deliverable interface to deliver messages.
 type Deliverable interface {
 	// Commit the given message on the state machine.
 	Commit(message types.Message, isGenericDelivery bool) types.Response
 }
 
-// A struct that is able to deliver message from the protocol.
+// Deliver is a struct that is able to deliver message from the protocol.
 // The messages will be committed on the peer state machine
 // and a notification will be generated,
 type Deliver struct {
 	name string
 
 	// The peer state machine.
-	sm types.StateMachine
+	sm StateMachine
 
 	// Deliver logger.
 	log types.Logger
 }
 
-// Creates a new instance of the Deliverable interface.
-func NewDeliver(name string, log types.Logger, logStructure types.Log) (Deliverable, error) {
-	sm := types.NewStateMachine(logStructure)
+// NewDeliver creates a new instance of the Deliverable interface.
+func NewDeliver(name string, log types.Logger, logStructure Log) (Deliverable, error) {
+	sm := NewStateMachine(logStructure)
 	if err := sm.Restore(); err != nil {
 		return nil, err
 	}

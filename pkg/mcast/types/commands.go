@@ -53,11 +53,11 @@ const (
 
 	// The first type of message, to be processed locally
 	// following the protocol definition and MessageState.
-	Initial MessageType = iota
+	ABCast MessageType = iota
 
 	// Defines a message a an external request, for example,
 	// when exchanging the message timestamp between partitions.
-	External
+	Network
 
 	// Defines the latest protocol version
 	LatestProtocolVersion = 0

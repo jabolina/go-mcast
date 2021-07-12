@@ -15,7 +15,7 @@ type Purgatory interface {
 	// and false otherwise.
 	Set(id string) bool
 
-	// Contains verify if the given Value exists in purgatory.
+	// Contains conflict if the given Value exists in purgatory.
 	Contains(id string) bool
 }
 
@@ -41,7 +41,7 @@ func (t *TtlPurgatory) Set(id string) bool {
 	return old == nil && err == nil
 }
 
-// Contains verify if the given entry already exists on purgatory.
+// Contains conflict if the given entry already exists on purgatory.
 func (t *TtlPurgatory) Contains(id string) bool {
 	v, err := t.delegate.Peek([]byte(id))
 	return v != nil && err == nil
