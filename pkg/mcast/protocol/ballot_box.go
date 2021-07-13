@@ -31,6 +31,7 @@ func NewBallotBox() *BallotBox {
 	}
 }
 
+// Create and fill a ballot with the given values.
 func (b *BallotBox) newFilledBallot(voter types.Partition, vote uint64) ballot {
 	return ballot{
 		from:      voter,
@@ -38,10 +39,7 @@ func (b *BallotBox) newFilledBallot(voter types.Partition, vote uint64) ballot {
 	}
 }
 
-// Insert will try to insert the new vote for the exchange timestamp onto the ballot box.
-// If other peer from the origin partition already voted for a timestamp than the vote can
-// be ignored, since is needed only a single peer from each partition
-// to send the timestamp.
+// Insert will add the vote to the given election.
 func (b *BallotBox) Insert(key types.UID, from types.Partition, value uint64) {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
@@ -73,6 +71,11 @@ func (b *BallotBox) Read(key types.UID) []uint64 {
 	return timestamps
 }
 
+// ElectionSize returns the number of unique votes.
+// Unique means that will count the number of partitions that casted a vote,
+// a partition contains multiple processes, so all processes inside a partition
+// can vote, but when is verified if there is enough votes, only the number
+// of partitions that voted is counted.
 func (b *BallotBox) ElectionSize(key types.UID) int {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()

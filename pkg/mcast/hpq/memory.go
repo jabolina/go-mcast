@@ -46,7 +46,7 @@ type ElementNotification struct {
 
 type PeerQueueManager struct {
 	ctx       context.Context
-	conflict  func(types.Message) bool
+	conflict  func(types.Message, types.Message) bool
 	eden      Eden
 	purgatory Purgatory
 	notify    chan<- ElementNotification
@@ -54,7 +54,7 @@ type PeerQueueManager struct {
 	mutex     *sync.Mutex
 }
 
-func NewReceivedQueue(ctx context.Context, notify chan<- ElementNotification, verify func(types.Message) bool) Memory {
+func NewReceivedQueue(ctx context.Context, notify chan<- ElementNotification, verify func(types.Message, types.Message) bool) Memory {
 	p := &PeerQueueManager{
 		ctx:       ctx,
 		conflict:  verify,
@@ -132,9 +132,18 @@ func (p *PeerQueueManager) GenericDeliver(message types.Message) {
 	p.eden.Apply(func(current []types.Message) {
 		var messages []types.Message
 
+		existsConflict := func(m types.Message) bool {
+			for _, n := range current {
+				if m.Identifier != n.Identifier && p.conflict(m, n) {
+					return true
+				}
+			}
+			return false
+		}
+
 		// If the current given message does not conflict with any other,
 		// it can also be added to be delivered.
-		if !p.conflict(message) {
+		if !existsConflict(message) {
 			messages = append(messages, message)
 		}
 
@@ -145,7 +154,7 @@ func (p *PeerQueueManager) GenericDeliver(message types.Message) {
 		// Since the elements that will be delivered here could
 		// be delivered at any order, this should not be a problem.
 		for _, value := range current {
-			if value.State == types.S3 && value.Identifier != message.Identifier && !p.conflict(value) {
+			if value.State == types.S3 && !existsConflict(value) {
 				messages = append(messages, value)
 			}
 		}

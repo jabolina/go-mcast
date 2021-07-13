@@ -34,7 +34,6 @@ type Manager struct {
 }
 
 func NewProtocol(configuration types.PeerConfiguration, invoker helper.Invoker) (Protocol, error) {
-	previousSet := NewPreviousSet(configuration.Conflict)
 	wal := output.NewLogStructure(configuration.Storage)
 	deliver, err := output.NewDeliver(string(configuration.Name), wal)
 	if err != nil {
@@ -43,7 +42,7 @@ func NewProtocol(configuration types.PeerConfiguration, invoker helper.Invoker) 
 	}
 
 	p := &Manager{
-		algorithm: NewAlgorithm(configuration.Commit, configuration.Ctx, previousSet, deliver, invoker),
+		algorithm: NewAlgorithm(configuration, deliver, invoker),
 		wal:       wal,
 	}
 	return p, nil

@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"context"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
 	"github.com/jabolina/go-mcast/pkg/mcast/hpq"
 	"github.com/jabolina/go-mcast/pkg/mcast/output"
@@ -49,23 +48,22 @@ type Algorithm struct {
 // NewAlgorithm will create a new Algorithm structure and start all
 // needed sub-structures and goroutines.
 func NewAlgorithm(
-	commit chan<- types.Response,
-	parent context.Context,
-	set PreviousSet,
+	configuration types.PeerConfiguration,
 	deliverable output.Deliverable,
 	invoker helper.Invoker) *Algorithm {
 
+	previousSet := NewPreviousSet(configuration.Conflict)
 	p := &Algorithm{
 		memoryNotification: make(chan hpq.ElementNotification),
-		previousSet:        set,
+		previousSet:        previousSet,
 		clock:              NewClock(),
 		ballotBox:          NewBallotBox(),
-		commit:             commit,
+		commit:             configuration.Commit,
 		deliver:            deliverable,
 		invoker:            invoker,
 	}
-	p.Mem = hpq.NewReceivedQueue(parent, p.memoryNotification, func(message types.Message) bool {
-		return p.previousSet.ExistsConflict(message)
+	p.Mem = hpq.NewReceivedQueue(configuration.Ctx, p.memoryNotification, func(m, n types.Message) bool {
+		return configuration.Conflict.Conflict(m, n)
 	})
 	invoker.Spawn(p.handleMemoryNotifications)
 	return p
@@ -98,6 +96,7 @@ func (p *Algorithm) collectAfterProcessing(message *types.Message, step Step) St
 
 	p.Mem.Append(*message)
 	if step == Ended {
+		// This method is O(n**2), where n is the size of the message queue.
 		p.Mem.GenericDeliver(*message)
 	}
 	return step

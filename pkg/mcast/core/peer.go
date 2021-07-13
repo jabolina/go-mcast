@@ -161,6 +161,17 @@ func (p *Peer) process(message types.Message) {
 	})
 }
 
+// Responsible do choose adequately the next step after processing a message in the protocol.
+// As a response after processing, the needed step is returned, which is processed here,
+// if the step is `protocol.ExchangeInternal`, this means that internally a single partition the
+// processes lost synchronization so the step requires that an atomic broadcast must
+// be executed within a single partition to synchronize the processes.
+//
+// If the next step is `protocol.ExchangeAll`, means that a message must be sent to all
+// processes that participate in the protocol, so the unreliable transport is used to
+// send the message to all processes.
+//
+// Any other step does not need to be handled.
 func (p *Peer) handleProtocolNextStep(message types.Message, step protocol.Step) {
 	switch step {
 	case protocol.ExchangeInternal:
