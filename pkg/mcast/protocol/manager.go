@@ -28,7 +28,7 @@ type Manager struct {
 	// Holds the algorithm, used to process messages.
 	algorithm *Algorithm
 
-	// Holds the peer logger, this will be used for reads only,
+	// Holds the peer write ahead log, this will be used for reads only,
 	// all writes are done from the state machine when a commit is applied.
 	wal output.Log
 }

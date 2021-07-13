@@ -54,7 +54,7 @@ type PriorityQueue struct {
 	// A channel for notification about changes on the head element.
 	notification chan<- QueueElement
 
-	// A function to conflict if the given element can be notified.
+	// A function to verify if the given element can be notified.
 	validation func(QueueElement) bool
 }
 
@@ -85,7 +85,7 @@ func (p *PriorityQueue) Push(element QueueElement) {
 
 	if !p.values.IsEmpty() {
 		// If the head already contains an element.
-		// We must conflict it with the Value when the function returns.
+		// We must verify it with the Value when the function returns.
 		headStart := p.values.Peek().(QueueElement)
 		defer func() {
 			headCurrent := p.values.Peek().(QueueElement)
@@ -116,7 +116,7 @@ func (p *PriorityQueue) Pop() interface{} {
 		if !p.values.IsEmpty() {
 			// The Pop method will remove the head element, so
 			// if we still have elements the head definitely changed,
-			// we only need to conflict if the Value can notify.
+			// we only need to verify if the Value can notify.
 			headCurrent := p.values.Peek().(QueueElement)
 			if p.validation(headCurrent) {
 				p.sendNotification()
@@ -138,7 +138,7 @@ func (p *PriorityQueue) Remove(element QueueElement) interface{} {
 	defer p.mutex.Unlock()
 
 	// We are not sure if the removed element is the
-	// head, so we will conflict the old head with the
+	// head, so we will verify the old head with the
 	// current after the function returns.
 	if !p.values.IsEmpty() {
 		headStart := p.values.Peek().(QueueElement)
