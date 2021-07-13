@@ -97,7 +97,7 @@ func (p *PriorityQueue) Push(element QueueElement) {
 		defer func() {
 			head := p.values.Peek().(QueueElement)
 			// We know the head was empty and now has a Value, so
-			// it definitely changed, now only verify if the Value
+			// it definitely changed, now only conflict if the Value
 			// can notify.
 			if p.validation(head) {
 				p.sendNotification()

@@ -1,11 +1,10 @@
-package definition
+package output
 
 import (
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 )
 
-// The default Storage implementation. This struct do not hold
-// any information.
+// EmptyStorage the default Storage implementation. This struct do not hold any information.
 type EmptyStorage struct {
 }
 
@@ -13,7 +12,7 @@ func NewDefaultStorage() types.Storage {
 	return &EmptyStorage{}
 }
 
-func (e EmptyStorage) Set(entry types.StorageEntry) error {
+func (e EmptyStorage) Set(_ types.StorageEntry) error {
 	return nil
 }
 

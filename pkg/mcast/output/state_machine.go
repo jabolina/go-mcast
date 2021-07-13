@@ -1,24 +1,32 @@
-package types
+package output
+
+import "github.com/jabolina/go-mcast/pkg/mcast/types"
 
 // StateMachine is an interface that can be implemented
 // to use the replicated value across replicas.
 type StateMachine interface {
 	// Commit the given entry into the state machine, turning it available for all clients.
-	Commit(Message, bool) error
+	Commit(types.Message, bool) error
 
-	// Return the history of commands for the state machine. See that the command history
+	// History return the history of commands for the state machine. See that the command history
 	// will be returned at the time of request, so when processing the history new commands
 	// may already exists.
-	History() ([]Message, error)
+	History() ([]types.Message, error)
 
-	// Restores the state machine back to a given a state.
+	// Restore the state machine back to a given a state.
 	Restore() error
 }
 
-// A in memory default value to be used.
+// DefaultStateMachine is an in memory default value to be used.
 type DefaultStateMachine struct {
 	// Log structure where commands will be appended.
 	log Log
+}
+
+// NewStateMachine create the new state machine using the given storage
+// for committing changes.
+func NewStateMachine(log Log) *DefaultStateMachine {
+	return &DefaultStateMachine{log: log}
 }
 
 // Commit the operation into the stable storage.
@@ -32,20 +40,14 @@ type DefaultStateMachine struct {
 //
 // This method is a critical area, where *all* the steps must be executed as
 // a transaction.
-func (i *DefaultStateMachine) Commit(message Message, isGenericDeliver bool) error {
+func (i *DefaultStateMachine) Commit(message types.Message, isGenericDeliver bool) error {
 	return i.log.Append(message, isGenericDeliver)
 }
 
-func (i *DefaultStateMachine) History() ([]Message, error) {
+func (i *DefaultStateMachine) History() ([]types.Message, error) {
 	return i.log.Dump()
 }
 
 func (i *DefaultStateMachine) Restore() error {
 	return nil
-}
-
-// Create the new state machine using the given storage
-// for committing changes.
-func NewStateMachine(log Log) *DefaultStateMachine {
-	return &DefaultStateMachine{log: log}
 }

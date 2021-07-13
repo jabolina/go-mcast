@@ -42,7 +42,7 @@ func NewGenericMulticast(configuration *types.Configuration) (IMulticast, error)
 		Commit:        commitChan,
 		ActionTimeout: configuration.DefaultTimeout,
 	}
-	peer, err := core.NewPeer(peerConfiguration, configuration.Oracle, configuration.Logger)
+	peer, err := core.NewPeer(peerConfiguration, configuration.Oracle, configuration.Logger, helper.InvokerInstance())
 	if err != nil {
 		cancel()
 		return nil, err
@@ -64,7 +64,7 @@ func (m *Multicast) Write(request types.Request) error {
 	message := types.Message{
 		Header: types.ProtocolHeader{
 			ProtocolVersion: m.configuration.Version,
-			Type:            types.Initial,
+			Type:            types.ABCast,
 		},
 		Identifier: id,
 		Content: types.DataHolder{

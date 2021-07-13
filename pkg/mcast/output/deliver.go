@@ -1,50 +1,44 @@
-package core
+package output
 
 import (
 	"errors"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
-	"time"
 )
 
 var (
 	ErrCommandUnknown = errors.New("unknown command applied into state machine")
 )
 
-// Interface to deliver messages.
+// Deliverable interface to deliver messages.
 type Deliverable interface {
 	// Commit the given message on the state machine.
 	Commit(message types.Message, isGenericDelivery bool) types.Response
 }
 
-// A struct that is able to deliver message from the protocol.
+// Deliver is a struct that is able to deliver message from the protocol.
 // The messages will be committed on the peer state machine
 // and a notification will be generated,
 type Deliver struct {
 	name string
 
 	// The peer state machine.
-	sm types.StateMachine
-
-	// Deliver logger.
-	log types.Logger
+	sm StateMachine
 }
 
-// Creates a new instance of the Deliverable interface.
-func NewDeliver(name string, log types.Logger, logStructure types.Log) (Deliverable, error) {
-	sm := types.NewStateMachine(logStructure)
+// NewDeliver creates a new instance of the Deliverable interface.
+func NewDeliver(name string, logStructure Log) (Deliverable, error) {
+	sm := NewStateMachine(logStructure)
 	if err := sm.Restore(); err != nil {
 		return nil, err
 	}
 	d := &Deliver{
 		name: name,
 		sm:   sm,
-		log:  log,
 	}
 	return d, nil
 }
 
 func (d Deliver) Commit(m types.Message, isGenericDelivery bool) types.Response {
-	d.log.Debugf("%s commit %s request %d - %v - %#v", d.name, m.Identifier, time.Now().UnixNano(), isGenericDelivery, m)
 	err := d.sm.Commit(m, isGenericDelivery)
 
 	res := types.Response{
@@ -54,7 +48,6 @@ func (d Deliver) Commit(m types.Message, isGenericDelivery bool) types.Response 
 	}
 
 	if err != nil {
-		d.log.Errorf("failed to commit %#v. %v", m, err)
 		res.Success = false
 		res.Failure = err
 		return res
