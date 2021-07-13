@@ -3,7 +3,6 @@ package output
 import (
 	"errors"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
-	"time"
 )
 
 var (
@@ -24,13 +23,10 @@ type Deliver struct {
 
 	// The peer state machine.
 	sm StateMachine
-
-	// Deliver logger.
-	log types.Logger
 }
 
 // NewDeliver creates a new instance of the Deliverable interface.
-func NewDeliver(name string, log types.Logger, logStructure Log) (Deliverable, error) {
+func NewDeliver(name string, logStructure Log) (Deliverable, error) {
 	sm := NewStateMachine(logStructure)
 	if err := sm.Restore(); err != nil {
 		return nil, err
@@ -38,13 +34,11 @@ func NewDeliver(name string, log types.Logger, logStructure Log) (Deliverable, e
 	d := &Deliver{
 		name: name,
 		sm:   sm,
-		log:  log,
 	}
 	return d, nil
 }
 
 func (d Deliver) Commit(m types.Message, isGenericDelivery bool) types.Response {
-	d.log.Debugf("%s commit %s request %d - %v - %#v", d.name, m.Identifier, time.Now().UnixNano(), isGenericDelivery, m)
 	err := d.sm.Commit(m, isGenericDelivery)
 
 	res := types.Response{
@@ -54,7 +48,6 @@ func (d Deliver) Commit(m types.Message, isGenericDelivery bool) types.Response 
 	}
 
 	if err != nil {
-		d.log.Errorf("failed to commit %#v. %v", m, err)
 		res.Success = false
 		res.Failure = err
 		return res

@@ -8,17 +8,17 @@ import (
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 )
 
-// The Protocol structure is the actual Generic Multicast implementation.
+// The Algorithm structure is the actual Generic Multicast implementation.
 // To create a working protocol, some extra structures are also needed and are
 // used as helpers.
-type Protocol struct {
+type Algorithm struct {
 	// The Mem structure on the specification. Responsible for holding all the
 	// information about messages currently in process and already delivered
 	// messages. Also notifies when a message is ready to be delivered.
 	Mem hpq.Memory
 
 	// The channel memoryNotification is used by the Mem structure to notify
-	// the Protocol about messages that are ready to be delivered.
+	// the Algorithm about messages that are ready to be delivered.
 	memoryNotification chan hpq.ElementNotification
 
 	// The previousSet structure also defined in the specification. This structure
@@ -46,16 +46,16 @@ type Protocol struct {
 	invoker helper.Invoker
 }
 
-// NewProcessProtocol will create a new Protocol structure and start all
+// NewAlgorithm will create a new Algorithm structure and start all
 // needed sub-structures and goroutines.
-func NewProcessProtocol(
+func NewAlgorithm(
 	commit chan<- types.Response,
 	parent context.Context,
 	set PreviousSet,
 	deliverable output.Deliverable,
-	invoker helper.Invoker) *Protocol {
+	invoker helper.Invoker) *Algorithm {
 
-	p := &Protocol{
+	p := &Algorithm{
 		memoryNotification: make(chan hpq.ElementNotification),
 		previousSet:        set,
 		clock:              NewClock(),
@@ -75,7 +75,7 @@ func NewProcessProtocol(
 // this method a message is dispatched so the protocol can handle it accordingly.
 // After the message is processed, is up to the client to call the next step execution,
 // the protocol will return what must be executed as next step.
-func (p *Protocol) ReceiveMessage(message *types.Message) Step {
+func (p *Algorithm) ReceiveMessage(message *types.Message) Step {
 	response := func() Step {
 		switch message.Extract().Type {
 		case types.ABCast:
@@ -91,7 +91,7 @@ func (p *Protocol) ReceiveMessage(message *types.Message) Step {
 
 // The collectAfterProcessing is called after a message finished processing,
 // called after each step with the returned value for the next step.
-func (p *Protocol) collectAfterProcessing(message *types.Message, step Step) Step {
+func (p *Algorithm) collectAfterProcessing(message *types.Message, step Step) Step {
 	if step == NoOp {
 		return step
 	}
@@ -122,7 +122,7 @@ func (p *Protocol) collectAfterProcessing(message *types.Message, step Step) Ste
 // final timestamp, thus m.State can be updated to the final state S3 and, if
 // m.Timestamp is greater than local clock value, the clock is updated to hold
 // the received timestamp and the previousSet can be cleaned.
-func (p *Protocol) computeGroupSeqNumber(message *types.Message) Step {
+func (p *Algorithm) computeGroupSeqNumber(message *types.Message) Step {
 	if !p.Mem.Acceptable(*message) {
 		return NoOp
 	}
@@ -168,7 +168,7 @@ func (p *Protocol) computeGroupSeqNumber(message *types.Message) Step {
 // is greater or equal to tsm, in positive case, a second consensus instance can be
 // avoided and, the state of m can jump directly to state S3 since the group local
 // clock is already bigger than tsm.
-func (p *Protocol) gatherGroupsTimestamps(message *types.Message) Step {
+func (p *Algorithm) gatherGroupsTimestamps(message *types.Message) Step {
 	if !p.shouldProceedGatherGroupsTimestamps(message) {
 		return NoOp
 	}
@@ -195,7 +195,7 @@ func (p *Protocol) gatherGroupsTimestamps(message *types.Message) Step {
 // Since a message on state S3 already has its final timestamp, and since the message is on
 // the head of the queue it also contains the lowest timestamp, so the message is ready to be
 // delivered, which means, it will be committed on the local peer state machine.
-func (p *Protocol) doDeliver(message types.Message, generic bool) {
+func (p *Algorithm) doDeliver(message types.Message, generic bool) {
 	select {
 	case p.commit <- p.deliver.Commit(message, generic):
 		break
@@ -209,13 +209,13 @@ func (p *Protocol) doDeliver(message types.Message, generic bool) {
 	})
 }
 
-func (p *Protocol) Close() error {
+func (p *Algorithm) Close() error {
 	return p.Mem.Close()
 }
 
 // Method responsible for received notifications from the Mem structure.
 // A notification will be published when a message is ready to be delivered.
-func (p *Protocol) handleMemoryNotifications() {
+func (p *Algorithm) handleMemoryNotifications() {
 	for notification := range p.memoryNotification {
 		m, isGenericDeliver := notification.Value.(types.Message), notification.OnApply
 		p.doDeliver(m, isGenericDeliver)
@@ -233,15 +233,7 @@ func (p *Protocol) handleMemoryNotifications() {
 // process from each partition `A`, `B` and `C` sent a message to exchange the timestamp.
 // The vote from the process will only be persisted if exists a message in the Mem structure
 // in state `S1`.
-func (p *Protocol) shouldProceedGatherGroupsTimestamps(message *types.Message) bool {
-	/*alreadyExistsInStateS1 := func(m types.Message) bool {
-		return m.State == types.S1 && m.Identifier == message.Identifier
-	}
-
-	if !p.Mem.Exists(alreadyExistsInStateS1) {
-		return false
-	}*/
-
+func (p *Algorithm) shouldProceedGatherGroupsTimestamps(message *types.Message) bool {
 	p.ballotBox.Insert(message.Identifier, message.From, message.Timestamp)
 	return p.ballotBox.ElectionSize(message.Identifier) >= len(message.Destination)
 }

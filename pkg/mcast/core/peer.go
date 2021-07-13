@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
-	"github.com/jabolina/go-mcast/pkg/mcast/output"
 	"github.com/jabolina/go-mcast/pkg/mcast/protocol"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"io"
@@ -47,12 +46,7 @@ type Peer struct {
 	// Transport used for unreliable communication.
 	unreliableTransport Transport
 
-	protocol *protocol.Protocol
-
-	// Holds the peer logger, this will be used
-	// for reads only, all writes will come from the
-	// state machine when a commit is applied.
-	logAbstraction output.Log
+	protocol protocol.Protocol
 
 	// Peer logger.
 	logger types.Logger
@@ -81,21 +75,16 @@ func NewPeer(
 		return nil, err
 	}
 
-	previousSet := protocol.NewPreviousSet(configuration.Conflict)
-	logStructure := output.NewLogStructure(configuration.Storage)
-	deliver, err := output.NewDeliver(string(configuration.Name), logger, logStructure)
+	pl, err := protocol.NewProtocol(*configuration, invoker)
 	if err != nil {
-		configuration.Cancel()
 		return nil, err
 	}
 
-	pl := protocol.NewProcessProtocol(configuration.Commit, configuration.Ctx, previousSet, deliver, invoker)
 	p := &Peer{
 		invoker:             invoker,
 		configuration:       configuration,
 		reliableTransport:   reliableTransport,
 		unreliableTransport: unreliableTransport,
-		logAbstraction:      logStructure,
 		logger:              logger,
 		protocol:            pl,
 		context:             configuration.Ctx,
@@ -112,25 +101,7 @@ func (p *Peer) Command(message types.Message) error {
 
 // FastRead Implements the PartitionPeer interface.
 func (p *Peer) FastRead() types.Response {
-	res := types.Response{
-		Success: false,
-		Data:    nil,
-		Failure: nil,
-	}
-	data, err := p.logAbstraction.Dump()
-	if err != nil {
-		res.Success = false
-		res.Data = nil
-		res.Failure = err
-		return res
-	}
-
-	res.Success = true
-	res.Failure = nil
-	for _, message := range data {
-		res.Data = append(res.Data, message.Content)
-	}
-	return res
+	return p.protocol.Read()
 }
 
 // Close Implements the PartitionPeer interface.
@@ -184,7 +155,7 @@ func (p *Peer) process(message types.Message) {
 		return
 	}
 
-	nextStep := p.protocol.ReceiveMessage(&message)
+	nextStep := p.protocol.Process(&message)
 	p.invoker.Spawn(func() {
 		p.handleProtocolNextStep(message, nextStep)
 	})

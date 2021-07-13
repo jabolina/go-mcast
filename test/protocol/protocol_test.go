@@ -11,15 +11,15 @@ import (
 	"testing"
 )
 
-func createTestingProtocol(ctx context.Context, t *testing.T) *protocol.Protocol {
+func createTestingProtocol(ctx context.Context, t *testing.T) *protocol.Algorithm {
 	previousSet := protocol.NewPreviousSet(definition.AlwaysConflict{})
-	deliverable, err := output.NewDeliver("testing-deliverable", definition.NewDefaultLogger(), output.NewLogStructure(output.NewDefaultStorage()))
+	deliverable, err := output.NewDeliver("testing-deliverable", output.NewLogStructure(output.NewDefaultStorage()))
 	if err != nil {
 		t.Fatalf("Failed creating deliver. %#v", err)
 		return nil
 	}
 
-	return protocol.NewProcessProtocol(make(chan types.Response), ctx, previousSet, deliverable, util.NewInvoker())
+	return protocol.NewAlgorithm(make(chan types.Response), ctx, previousSet, deliverable, util.NewInvoker())
 }
 
 func Test_ReturnNextStepForMessageS0(t *testing.T) {
