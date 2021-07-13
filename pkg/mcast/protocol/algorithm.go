@@ -97,6 +97,7 @@ func (p *Algorithm) collectAfterProcessing(message *types.Message, step Step) St
 	p.Mem.Append(*message)
 	if step == Ended {
 		// This method is O(n**2), where n is the size of the message queue.
+		// The queue is all messages that are being processed by the protocol.
 		p.Mem.GenericDeliver(*message)
 	}
 	return step
@@ -178,11 +179,11 @@ func (p *Algorithm) gatherGroupsTimestamps(message *types.Message) Step {
 	if message.Timestamp >= tsMax {
 		message.State = types.S3
 		return Ended
-	} else {
-		message.Timestamp = tsMax
-		message.State = types.S2
-		return ExchangeInternal
 	}
+
+	message.Timestamp = tsMax
+	message.State = types.S2
+	return ExchangeInternal
 }
 
 // The doDeliver is called to commit the given element. Since the Mem will sort messages,
@@ -225,8 +226,8 @@ func (p *Algorithm) handleMemoryNotifications() {
 // From the specification there is a guard that must be fulfilled to execute this step,
 // this guard in english states that:
 //
-// Exists a message `m` in state `S1` in the Mem structure, and exists a process that
-// belongs to a destination partition that sent a message to exchange the timestamp.
+// For every partition, there is at least on process that send the message to exchange
+// the group sequence number.
 //
 // This verify that, for a message with destinations `A`, `B` and `C`, at least a single
 // process from each partition `A`, `B` and `C` sent a message to exchange the timestamp.
