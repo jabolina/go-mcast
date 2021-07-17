@@ -1,4 +1,4 @@
-package core
+package network
 
 import (
 	"github.com/jabolina/go-mcast/pkg/mcast/types"

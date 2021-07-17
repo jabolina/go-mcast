@@ -98,7 +98,9 @@ func (p *Algorithm) collectAfterProcessing(message *types.Message, step Step) St
 	if step == Ended {
 		// This method is O(n**2), where n is the size of the message queue.
 		// The queue is all messages that are being processed by the protocol.
-		p.Mem.GenericDeliver(*message)
+		p.invoker.Spawn(func() {
+			p.Mem.GenericDeliver(*message)
+		})
 	}
 	return step
 }

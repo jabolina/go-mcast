@@ -3,9 +3,9 @@ package test
 import (
 	"context"
 	"fmt"
-	"github.com/jabolina/go-mcast/pkg/mcast/core"
 	"github.com/jabolina/go-mcast/pkg/mcast/definition"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/network"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"github.com/jabolina/go-mcast/test/util"
 	"go.uber.org/goleak"
@@ -25,7 +25,7 @@ func Test_TransportActAsAUnity(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	listenersGroup := &sync.WaitGroup{}
 	writersGroup := &sync.WaitGroup{}
-	initializeReplica := func(trans core.Transport, h *util.MessageHist) {
+	initializeReplica := func(trans network.Transport, h *util.MessageHist) {
 		listenChan := trans.Listen()
 		go func() {
 			defer listenersGroup.Done()
@@ -42,8 +42,8 @@ func Test_TransportActAsAUnity(t *testing.T) {
 			}
 		}()
 	}
-	initializeCluster := func(size int) ([]core.Transport, []*util.MessageHist) {
-		var replicas []core.Transport
+	initializeCluster := func(size int) ([]network.Transport, []*util.MessageHist) {
+		var replicas []network.Transport
 		var history []*util.MessageHist
 		for i := 0; i < size; i++ {
 			cfg := &types.PeerConfiguration{
@@ -56,7 +56,7 @@ func Test_TransportActAsAUnity(t *testing.T) {
 				t.Logf("CI environment. Timeout is 20 seconds!")
 				cfg.ActionTimeout = 20 * time.Second
 			}
-			trans, err := core.NewReliableTransport(cfg, definition.NewDefaultLogger())
+			trans, err := network.NewReliableTransport(cfg, definition.NewDefaultLogger())
 			if err != nil {
 				t.Fatalf("failed creating transport. %#v", err)
 			}

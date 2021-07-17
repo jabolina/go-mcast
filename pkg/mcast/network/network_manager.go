@@ -1,4 +1,4 @@
-package core
+package network
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"io"
 )
 
-// PartitionPeer interface that a single peer must implement.
-type PartitionPeer interface {
+// Network interface that a single peer must implement.
+type Network interface {
 	io.Closer
 
 	// Command Issues a request to the Generic Multicast protocol.
@@ -28,11 +28,11 @@ type PartitionPeer interface {
 	FastRead() types.Response
 }
 
-// Peer is a structure that defines a single peer for the protocol.
+// Manager is a structure that defines a single peer for the protocol.
 // A group of peers will form a single partition, so,
 // a single peer is not fault tolerant, but a partition
 // will be.
-type Peer struct {
+type Manager struct {
 	// Used to spawn and control all go routines.
 	invoker helper.Invoker
 
@@ -48,7 +48,7 @@ type Peer struct {
 
 	protocol protocol.Protocol
 
-	// Peer logger.
+	// NetworkManager logger.
 	logger types.Logger
 
 	// The peer cancellable context.
@@ -58,13 +58,13 @@ type Peer struct {
 	finish context.CancelFunc
 }
 
-// NewPeer creates a new peer for the given configuration and
+// NewNetworkManager creates a new peer for the given configuration and
 // start polling for new messages.
-func NewPeer(
+func NewNetworkManager(
 	configuration *types.PeerConfiguration,
 	oracle types.Oracle,
 	logger types.Logger,
-	invoker helper.Invoker) (PartitionPeer, error) {
+	invoker helper.Invoker) (Network, error) {
 	reliableTransport, err := NewReliableTransport(configuration, logger)
 	if err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func NewPeer(
 		return nil, err
 	}
 
-	p := &Peer{
+	p := &Manager{
 		invoker:             invoker,
 		configuration:       configuration,
 		reliableTransport:   reliableTransport,
@@ -94,18 +94,18 @@ func NewPeer(
 	return p, nil
 }
 
-// Command Implements the PartitionPeer interface.
-func (p *Peer) Command(message types.Message) error {
+// Command Implements the Network interface.
+func (p *Manager) Command(message types.Message) error {
 	return p.reliableTransport.Broadcast(message)
 }
 
-// FastRead Implements the PartitionPeer interface.
-func (p *Peer) FastRead() types.Response {
+// FastRead Implements the Network interface.
+func (p *Manager) FastRead() types.Response {
 	return p.protocol.Read()
 }
 
-// Close Implements the PartitionPeer interface.
-func (p *Peer) Close() error {
+// Close Implements the Network interface.
+func (p *Manager) Close() error {
 	p.finish()
 	if err := p.protocol.Close(); err != nil {
 		return err
@@ -121,7 +121,7 @@ func (p *Peer) Close() error {
 // Listening for messages received from the reliableTransport
 // and processing following the protocol definition.
 // If the context is cancelled, this method will stop.
-func (p *Peer) poll() {
+func (p *Manager) poll() {
 	defer p.logger.Debugf("closing the peer %s", p.configuration.Name)
 	for {
 		select {
@@ -148,7 +148,7 @@ func (p *Peer) poll() {
 // If the process can be handled, the message is then processed by the protocol that will
 // return what must be done next with the message.
 // The processing for the next step can be done detached.
-func (p *Peer) process(message types.Message) {
+func (p *Manager) process(message types.Message) {
 	header := message.Extract()
 	if header.ProtocolVersion != p.configuration.Version {
 		p.logger.Warnf("peer not processing message %#v on version %d", message, header.ProtocolVersion)
@@ -172,7 +172,7 @@ func (p *Peer) process(message types.Message) {
 // send the message to all processes.
 //
 // Any other step does not need to be handled.
-func (p *Peer) handleProtocolNextStep(message types.Message, step protocol.Step) {
+func (p *Manager) handleProtocolNextStep(message types.Message, step protocol.Step) {
 	switch step {
 	case protocol.ExchangeInternal:
 		p.invoker.Spawn(func() {
@@ -190,7 +190,7 @@ func (p *Peer) handleProtocolNextStep(message types.Message, step protocol.Step)
 // Used to send a request using the reliableTransport API. Used for request across partitions,
 // when exchanging the message timestamp or when broadcasting the message internally
 // inside a partition.
-func (p *Peer) send(message types.Message, t types.MessageType) {
+func (p *Manager) send(message types.Message, t types.MessageType) {
 	message.Header.Type = t
 	message.From = p.configuration.Partition
 	var destination []types.Partition
@@ -207,7 +207,7 @@ func (p *Peer) send(message types.Message, t types.MessageType) {
 	}
 }
 
-func (p *Peer) dispatch(message types.Message, partition types.Partition, t types.MessageType) error {
+func (p *Manager) dispatch(message types.Message, partition types.Partition, t types.MessageType) error {
 	if t == types.Network {
 		return p.unreliableTransport.Unicast(message, partition)
 	}
