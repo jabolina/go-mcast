@@ -18,8 +18,11 @@ OnlyIncluded(pa) == {m \in Messages: pa \in m.d}
 
 IsEven(x) == x % 2 = 0
 ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
+AlwaysConflict(x, y) == TRUE
 
 Max(S) == CHOOSE x \in S: \A y \in S : x >= y
+
+UpdateMessageState(S, m) == IF Cardinality(S) = 0 THEN {m} ELSE {IF n.id /= m.id THEN n ELSE m : n \in S}
 
 \* Verify the input values.
 ASSUME 
@@ -35,7 +38,7 @@ ASSUME
 VARIABLES 
     K,
     Mem,
-    PreviousSet,
+    PreviousMsgs,
     ABCast,
     Delivered,
     Network
@@ -43,7 +46,7 @@ VARIABLES
 vars == <<
     K,
     Mem,
-    PreviousSet,
+    PreviousMsgs,
     Delivered,
     ABCast,
     Network >>
@@ -52,7 +55,7 @@ vars == <<
 InitProtocol ==
     /\ K = [i \in Partitions |-> [p \in Processes |-> 0]]
     /\ Mem = [i \in Partitions |-> [p \in Processes |-> {}]]
-    /\ PreviousSet = [i \in Partitions |-> [p \in Processes |-> {}]]
+    /\ PreviousMsgs = [i \in Partitions |-> [p \in Processes |-> {}]]
     /\ Delivered = [i \in Partitions |-> [p \in Processes |-> {}]]
 
 InitHelpers ==
@@ -68,11 +71,11 @@ ComputeGroupSeqNumber(p, q) ==
        IN
         /\ \/ /\ \A <<i, d>> \in Delivered[p][q]: \A n \in d: n.id /= m.id
               /\ \/ /\ m.s = 0
-                    /\ \/ /\ \E n \in PreviousSet[p][q]: Conflict(m, n)
+                    /\ \/ /\ \E n \in PreviousMsgs[p][q]: Conflict(m, n)
                           /\ K' = [K EXCEPT ![p][q] = K[p][q] + 1]
-                          /\ PreviousSet' = [PreviousSet EXCEPT ![p][q] = {m}]
-                       \/ /\ \A n \in PreviousSet[p][q]: ~Conflict(m, n)
-                          /\ PreviousSet' = [PreviousSet EXCEPT ![p][q] = PreviousSet[p][q] \cup {m}]
+                          /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = {m}]
+                       \/ /\ \A n \in PreviousMsgs[p][q]: ~Conflict(m, n)
+                          /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = PreviousMsgs[p][q] \cup {m}]
                           /\ UNCHANGED K
                  \/ /\ m.s /= 0
               /\ \/ /\ Cardinality(m.d) > 1
@@ -84,15 +87,16 @@ ComputeGroupSeqNumber(p, q) ==
                        \/ /\ m.s = 2
                           /\ \/ /\ m.ts > K[p][q]
                                 /\ K' = [K EXCEPT ![p][q] = m.ts]
-                                /\ PreviousSet' = [PreviousSet EXCEPT ![p][q] = {}]
+                                /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = {}]
                              \/ /\ m.ts <= K[p][q]
-                                /\ UNCHANGED <<K, PreviousSet>>
-                          /\ Mem' = [Mem EXCEPT ![p][q] = (@ \ {m}) \cup {[id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3]}]
+                                /\ UNCHANGED <<K, PreviousMsgs>>
+                          /\ Mem' = [Mem EXCEPT ![p][q] = UpdateMessageState(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3])]
                           /\ UNCHANGED Network
                  \/ /\ Cardinality(m.d) = 1
                     /\ Mem' = [Mem EXCEPT ![p][q] = (@ \ {m}) \cup {[id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 3]}]
                     /\ UNCHANGED Network
            \/ /\ \E <<i, d>> \in Delivered[p][q]: \E n \in d: n.id = m.id
+              /\ UNCHANGED <<K, Mem, PreviousMsgs, Delivered, Network>>
         /\ ABCast' = [ABCast EXCEPT ![p][q] = Tail(ABCast[p][q])]
         /\ UNCHANGED Delivered
 
@@ -105,13 +109,13 @@ GatherGroupsTimestamp(p, q) ==
             msgs == {x \in Network[p][q]: x.id = m.id}
            IN
             /\ \/ /\ m.ts >= Max(timestamps)
-                  /\ Mem' = [Mem EXCEPT ![p][q] = (@ \ {m}) \cup {[id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3]}]
-                  /\ UNCHANGED <<K, PreviousSet, ABCast, Delivered>>
+                  /\ Mem' = [Mem EXCEPT ![p][q] = UpdateMessageState(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3])]
+                  /\ UNCHANGED <<K, PreviousMsgs, ABCast, Delivered>>
                \/ /\ m.ts < Max(timestamps)
-                  /\ Mem' = [Mem EXCEPT ![p][q] = (@ \ {m}) \cup {[id |-> m.id, d |-> m.d, ts |-> Max(timestamps), s |-> 2]}]
+                  /\ Mem' = [Mem EXCEPT ![p][q] = UpdateMessageState(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> Max(timestamps), s |-> 2])]
                   /\ ABCast' = [ABCast EXCEPT ![p] =
                         [qq \in Processes |-> Append(ABCast[p][qq], [id |-> m.id, d |-> m.d, ts |-> Max(timestamps), s |-> 2])]]
-                  /\ UNCHANGED <<K, PreviousSet, Delivered>>
+                  /\ UNCHANGED <<K, PreviousMsgs, Delivered>>
             /\ Network' = [Network EXCEPT ![p][q] = @ \ msgs]
 
 DoDeliver(p, q) ==
@@ -122,13 +126,13 @@ DoDeliver(p, q) ==
             /\ \/ ~Conflict(m, n)
                \/ m.id < n.id \/ m.ts < n.ts
         /\ LET
-            G == {mm \in Mem[p][q]: \A nn \in Mem[p][q] \ {mm}: ~Conflict(mm, nn)}
+            G == {mm \in Mem[p][q]: \A nn \in Mem[p][q] \ {mm}: mm.s = 3 /\ ~Conflict(mm, nn)}
             D == {m} \cup G
             index == Cardinality(Delivered[p][q])
            IN
             /\ Mem' = [Mem EXCEPT ![p][q] = @ \ D]
             /\ Delivered' = [Delivered EXCEPT ![p][q] = Delivered[p][q] \cup {<<index, D>>}]
-            /\ UNCHANGED <<K, PreviousSet, ABCast, Network>>
+            /\ UNCHANGED <<K, PreviousMsgs, ABCast, Network>>
 
 --------------------------------------------------------------
 Step(pa, pr) ==
