@@ -69,34 +69,31 @@ ComputeGroupSeqNumber(p, q) ==
     /\ LET
         m == Head(ABCast[p][q])
        IN
-        /\ \/ /\ \A <<i, d>> \in Delivered[p][q]: \A n \in d: n.id /= m.id
+        /\ \/ /\ m.s = 0
+              /\ \/ /\ \E n \in PreviousMsgs[p][q]: Conflict(m, n)
+                    /\ K' = [K EXCEPT ![p][q] = K[p][q] + 1]
+                    /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = {m}]
+                 \/ /\ \A n \in PreviousMsgs[p][q]: ~Conflict(m, n)
+                    /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = PreviousMsgs[p][q] \cup {m}]
+                    /\ UNCHANGED K
+           \/ /\ m.s /= 0
+        /\ \/ /\ Cardinality(m.d) > 1
               /\ \/ /\ m.s = 0
-                    /\ \/ /\ \E n \in PreviousMsgs[p][q]: Conflict(m, n)
-                          /\ K' = [K EXCEPT ![p][q] = K[p][q] + 1]
-                          /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = {m}]
-                       \/ /\ \A n \in PreviousMsgs[p][q]: ~Conflict(m, n)
-                          /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = PreviousMsgs[p][q] \cup {m}]
-                          /\ UNCHANGED K
-                 \/ /\ m.s /= 0
-              /\ \/ /\ Cardinality(m.d) > 1
-                    /\ \/ /\ m.s = 0
-                          /\ Mem' = [Mem EXCEPT ![p][q] = (@ \ {m}) \cup {[id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 1]}]
-                          /\ Network' = [pp \in Partitions |-> IF pp \in m.d
-                                    THEN [qq \in Processes |-> Network[pp][qq] \cup {[id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 1, o |-> p]}]
-                                    ELSE Network[pp]]
-                       \/ /\ m.s = 2
-                          /\ \/ /\ m.ts > K[p][q]
-                                /\ K' = [K EXCEPT ![p][q] = m.ts]
-                                /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = {}]
-                             \/ /\ m.ts <= K[p][q]
-                                /\ UNCHANGED <<K, PreviousMsgs>>
-                          /\ Mem' = [Mem EXCEPT ![p][q] = UpdateMessageState(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3])]
-                          /\ UNCHANGED Network
-                 \/ /\ Cardinality(m.d) = 1
-                    /\ Mem' = [Mem EXCEPT ![p][q] = (@ \ {m}) \cup {[id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 3]}]
+                    /\ Mem' = [Mem EXCEPT ![p][q] = (@ \ {m}) \cup {[id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 1]}]
+                    /\ Network' = [pp \in Partitions |-> IF pp \in m.d
+                            THEN [qq \in Processes |-> Network[pp][qq] \cup {[id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 1, o |-> p]}]
+                            ELSE Network[pp]]
+                 \/ /\ m.s = 2
+                    /\ \/ /\ m.ts > K[p][q]
+                          /\ K' = [K EXCEPT ![p][q] = m.ts]
+                          /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = {}]
+                       \/ /\ m.ts <= K[p][q]
+                          /\ UNCHANGED <<K, PreviousMsgs>>
+                    /\ Mem' = [Mem EXCEPT ![p][q] = UpdateMessageState(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3])]
                     /\ UNCHANGED Network
-           \/ /\ \E <<i, d>> \in Delivered[p][q]: \E n \in d: n.id = m.id
-              /\ UNCHANGED <<K, Mem, PreviousMsgs, Delivered, Network>>
+           \/ /\ Cardinality(m.d) = 1
+              /\ Mem' = [Mem EXCEPT ![p][q] = (@ \ {m}) \cup {[id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 3]}]
+              /\ UNCHANGED Network
         /\ ABCast' = [ABCast EXCEPT ![p][q] = Tail(ABCast[p][q])]
         /\ UNCHANGED Delivered
 
