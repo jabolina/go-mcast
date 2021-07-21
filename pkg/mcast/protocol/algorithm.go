@@ -125,10 +125,6 @@ func (p *Algorithm) collectAfterProcessing(message *types.Message, step Step) St
 // m.Timestamp is greater than local clock value, the clock is updated to hold
 // the received timestamp and the previousSet can be cleaned.
 func (p *Algorithm) computeGroupSeqNumber(message *types.Message) Step {
-	if !p.Mem.Acceptable(*message) {
-		return NoOp
-	}
-
 	if message.State == types.S0 {
 		if p.previousSet.ExistsConflict(*message) {
 			p.clock.Tick()
@@ -228,14 +224,17 @@ func (p *Algorithm) handleMemoryNotifications() {
 // From the specification there is a guard that must be fulfilled to execute this step,
 // this guard in english states that:
 //
-// For every partition, there is at least on process that send the message to exchange
-// the group sequence number.
+// Exists a message `m` in the Mem with such as m.State = `types.S1` and for every partition,
+// there is at least on process that send `m` to exchange the sequence number.
 //
 // This verify that, for a message with destinations `A`, `B` and `C`, at least a single
 // process from each partition `A`, `B` and `C` sent a message to exchange the timestamp.
-// The vote from the process will only be persisted if exists a message in the Mem structure
-// in state `S1`.
+// The predicate must be true so the message can be processed completely, but even if the
+// predicate is not true, it must be kept into a structure to save the sequence number vote.
 func (p *Algorithm) shouldProceedGatherGroupsTimestamps(message *types.Message) bool {
 	p.ballotBox.Insert(message.Identifier, message.From, message.Timestamp)
-	return p.ballotBox.ElectionSize(message.Identifier) >= len(message.Destination)
+	hasStateS1 := p.Mem.Exists(func(m types.Message) bool {
+		return m.Identifier == message.Identifier && m.State == types.S1
+	})
+	return p.ballotBox.ElectionSize(message.Identifier) >= len(message.Destination) && hasStateS1
 }

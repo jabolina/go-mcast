@@ -16,10 +16,6 @@ import (
 type Memory interface {
 	io.Closer
 
-	// Acceptable conflict if the given interface is eligible to be
-	// added to the queue.
-	Acceptable(types.Message) bool
-
 	// Append enqueue a new item and returns true if a change
 	// occurred and false otherwise.
 	Append(types.Message) bool
@@ -149,21 +145,11 @@ func (p *PeerQueueManager) Close() error {
 	return nil
 }
 
-// Acceptable implements the Memory interface.
-// This method will verify if the given messages was already
-// delivered at some point in the past.
-func (p *PeerQueueManager) Acceptable(message types.Message) bool {
-	return !p.purgatory.Contains(string(message.Identifier))
-}
-
 // Append implements the Memory interface.
 // The method will insert the given message in the queue that resides in the
 // eden region. The message will only be inserted if if was not delivered
 // previously.
 func (p *PeerQueueManager) Append(message types.Message) bool {
-	if !p.Acceptable(message) {
-		return false
-	}
 	return p.eden.Enqueue(message)
 }
 
@@ -198,10 +184,6 @@ func (p *PeerQueueManager) Exists(f func(types.Message) bool) bool {
 // delivered, it will also verify if there are another messages that can also be
 // generic delivered.
 func (p *PeerQueueManager) GenericDeliver(message types.Message) {
-	if !p.Acceptable(message) {
-		return
-	}
-
 	p.eden.Apply(func(current []types.Message) {
 		var messages []types.Message
 
