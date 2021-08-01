@@ -98,9 +98,7 @@ ComputeGroupSeqNumber(p, q) ==
         /\ UNCHANGED Delivered
 
 GatherGroupsTimestamp(p, q) ==
-    \E m \in Mem[p][q]: 
-        /\ m.s = 1
-        /\ Cardinality(m.d) = Cardinality({v.o : v \in {x \in Network[p][q]: x.id = m.id}})
+    \E m \in Mem[p][q]: m.s = 1 /\ Cardinality(m.d) = Cardinality({v.o : v \in {x \in Network[p][q]: x.id = m.id}})
         /\ LET
             timestamps == {v.ts : v \in {x \in Network[p][q]: x.id = m.id}}
             msgs == {x \in Network[p][q]: x.id = m.id}
@@ -149,31 +147,31 @@ Spec == Init /\ [][Next]_vars
 --------------------------------------------------------------
 WasDelivered(pa, pr, m) ==
     \E <<i, msgs>> \in Delivered[pa][pr]: \E n \in msgs: m.id = n.id
-ExistDeliver(pa, m) ==
-    \E pr \in Processes: WasDelivered(pa, pr, m)
-UnionPartitionDeliver(pa, m) ==
-    UNION {Delivered[pa][x]: x \in DOMAIN Delivered[pa]}
+ExistProcessDeliver(p, m) ==
+    \E q \in Processes: WasDelivered(p, q, m)
+AllProcessDeliver(p, m) ==
+    \A q \in Processes: WasDelivered(p, q, m)
+ExistsDeliver(m) ==
+    \E p \in m.d: ExistProcessDeliver(p, m)
+AllPartitionsDeliver(m) ==
+    \A p \in m.d: AllProcessDeliver(p, m)
+DeliveredOnlyOnce(pa, pr, m) == Cardinality({x \in Delivered[pa][pr]: \E n \in x[2]: n.id = m.id}) = 1
 DeliveredIndex(pa, m) ==
-    (CHOOSE <<i, msgs>> \in UnionPartitionDeliver(pa, m): \E n \in msgs: n.id = m.id)[1]
+    (CHOOSE <<i, msgs>> \in UNION {Delivered[pa][x]: x \in DOMAIN Delivered[pa]}: \E n \in msgs: n.id = m.id)[1]
 
 Validity ==
-    \A m \in ToSend:
-        \E <<pa, pr>> \in Partitions \X Processes:
-                pa \in m.d ~> \E ppa \in m.d : \E ppr \in Processes: WasDelivered(ppa, ppr, m)
+    <>[]\A m \in ToSend:
+        \E p \in m.d: ExistProcessDeliver(p, m)
 
 Agreement ==
-    \A m \in ToSend:
-        \A <<pa, pr>> \in Partitions \X Processes:
-            WasDelivered(pa, pr, m) ~> \A ppa \in m.d: \E ppr \in Processes: WasDelivered(ppa, ppr, m)
+    <>[]\A m \in ToSend:
+        ExistsDeliver(m) => AllPartitionsDeliver(m)
 
-DeliveredOnlyOnce(pa, pr, m) == Cardinality({x \in Delivered[pa][pr]: \E n \in x[2]: n.id = m.id}) = 1
 Integrity ==
-    \A m \in ToSend:
-        \A <<pa, pr>> \in Partitions \X Processes:
-            pa \in m.d ~> \A ppa \in Partitions: 
-                            \E ppr \in Processes: 
-                                WasDelivered(ppa, ppr, m) /\ DeliveredOnlyOnce(ppa, ppr, m)
-
+    <>[]\A m \in ToSend:
+        \A p \in m.d:
+            \A q \in {x \in Processes: WasDelivered(p, x, m)}:
+                DeliveredOnlyOnce(p, q, m)
 
 AssertDeliveryOrder(pm, pn, qm, qn) == 
     \/ ((pm < pn) /\ (qm < qn))
@@ -204,7 +202,7 @@ Collision ==
         \A m, n \in ToSend:
             /\ m.id /= n.id
                 /\ p \in (m.d \intersect n.d)
-                /\ ExistDeliver(p, m)
-                /\ ExistDeliver(p, n)
+                /\ ExistProcessDeliver(p, m)
+                /\ ExistProcessDeliver(p, n)
                 /\ Conflict(m, n) => DeliveredIndex(p, m) /= DeliveredIndex(p, n)
 ==============================================================
