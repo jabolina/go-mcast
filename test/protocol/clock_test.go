@@ -1,14 +1,14 @@
-package test
+package protocol
 
 import (
-	"github.com/jabolina/go-mcast/pkg/mcast/core"
+	"github.com/jabolina/go-mcast/pkg/mcast/protocol"
 	"sync"
 	"testing"
 )
 
 func TestLogicalClock_GroupTick(t *testing.T) {
 	concurrentMembers := 50000
-	clk := core.NewClock()
+	clk := protocol.NewClock()
 
 	wg := &sync.WaitGroup{}
 	wg.Add(concurrentMembers)

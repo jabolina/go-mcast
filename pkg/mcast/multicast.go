@@ -2,8 +2,8 @@ package mcast
 
 import (
 	"context"
-	"github.com/jabolina/go-mcast/pkg/mcast/core"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/network"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"io"
 )
@@ -19,7 +19,7 @@ type IMulticast interface {
 }
 
 type Multicast struct {
-	peer          core.PartitionPeer
+	peer          network.Network
 	configuration *types.Configuration
 	commit        chan types.Response
 }
@@ -42,7 +42,7 @@ func NewGenericMulticast(configuration *types.Configuration) (IMulticast, error)
 		Commit:        commitChan,
 		ActionTimeout: configuration.DefaultTimeout,
 	}
-	peer, err := core.NewPeer(peerConfiguration, configuration.Oracle, configuration.Logger)
+	peer, err := network.NewNetworkManager(peerConfiguration, configuration.Oracle, configuration.Logger, helper.InvokerInstance())
 	if err != nil {
 		cancel()
 		return nil, err
@@ -64,7 +64,7 @@ func (m *Multicast) Write(request types.Request) error {
 	message := types.Message{
 		Header: types.ProtocolHeader{
 			ProtocolVersion: m.configuration.Version,
-			Type:            types.Initial,
+			Type:            types.ABCast,
 		},
 		Identifier: id,
 		Content: types.DataHolder{

@@ -1,8 +1,8 @@
 package test
 
 import (
-	"github.com/jabolina/go-mcast/pkg/mcast/definition"
 	"github.com/jabolina/go-mcast/pkg/mcast/helper"
+	"github.com/jabolina/go-mcast/pkg/mcast/output"
 	"github.com/jabolina/go-mcast/pkg/mcast/types"
 	"sync"
 	"testing"
@@ -26,7 +26,7 @@ func (l *logMetadata) size() int {
 }
 
 func TestLog_AppendAndRead(t *testing.T) {
-	log := types.NewLogStructure(definition.NewDefaultStorage())
+	log := output.NewLogStructure(output.NewDefaultStorage())
 	var uids []types.UID
 	testSize := 1000
 	for i := 0; i < testSize; i++ {
@@ -65,7 +65,7 @@ func TestLog_AppendAndRead(t *testing.T) {
 }
 
 func TestLog_ShouldHandleConcurrentOperations(t *testing.T) {
-	log := types.NewLogStructure(definition.NewDefaultStorage())
+	log := output.NewLogStructure(output.NewDefaultStorage())
 	uids := logMetadata{
 		mutex: &sync.Mutex{},
 	}

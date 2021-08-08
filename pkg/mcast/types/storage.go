@@ -1,6 +1,6 @@
 package types
 
-// Used to provide storage for the state machine values.
+// Storage is used to provide storage for the state machine values.
 type Storage interface {
 	// Set the value associated with the key
 	Set(entry StorageEntry) error
