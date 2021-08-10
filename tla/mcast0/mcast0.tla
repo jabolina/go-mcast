@@ -37,6 +37,7 @@ ChooseProcess == CHOOSE x \in Processes : TRUE
 \* messages do not commute.
 IsEven(x) == x % 2 = 0
 ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
+AlwaysConflict(x, y) == TRUE
 
 ChooseSubset == CHOOSE x \in SUBSET Processes: Cardinality(x) > 0
 
@@ -157,8 +158,8 @@ InitProtocol ==
 \* Here we start all helpers.
 InitHelpers ==
     \* This is used to simulate network calls. The network is started
-    \* with messages on state "S1" that are ready to be processed.
-    /\ Network = [ i \in Processes |-> {<<"S1", m>> : m \in {x \in ToSend: i \in x.d}} ]
+    \* with messages on state "S0" that are ready to be processed.
+    /\ Network = [ i \in Processes |-> {<<"S0", m>> : m \in {x \in ToSend: i \in x.d}} ]
 
     \* This structure is holding the votes the processes cast for each
     \* message on the system. Since any process can be the "coordinator",
@@ -193,7 +194,7 @@ Init == InitProtocol /\ InitHelpers
 (***************************************************************************)
 AssignTimestamp(self) ==
     \E <<state, msg>> \in Network[self]: 
-        /\ state = "S1"
+        /\ state = "S0"
         /\ \/ /\ \E prev \in PreviousMsgs[self]: Conflict(msg, prev)
               /\ K' = [K EXCEPT ![self] = K[self] + 1]
               /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![self] = {msg}]
@@ -207,14 +208,14 @@ AssignTimestamp(self) ==
             /\ Pending' = [Pending EXCEPT ![self] = Pending[self] \cup {built}]
             /\ Network' = [dest \in Processes |-> IF dest \in msg.d THEN
                                 IF self = dest /\ msg.s = self
-                                THEN (Network[self] \ {<<state, msg>>}) \cup {<<"S2", voted>>}
+                                THEN (Network[self] \ {<<state, msg>>}) \cup {<<"S1", voted>>}
                                 ELSE IF msg.s = dest
-                                    THEN Network[dest] \cup {<<"S2", voted>>}
+                                    THEN Network[dest] \cup {<<"S1", voted>>}
                                     ELSE IF self = dest
                                         THEN  Network[dest] \ {<<state, msg>>}
                                         ELSE Network[dest]
                             ELSE IF msg.s = dest
-                                THEN Network[dest] \cup {<<"S2", voted>>}
+                                THEN Network[dest] \cup {<<"S1", voted>>}
                                 ELSE Network[dest] \ {<<state, msg>>}]
             /\ UNCHANGED <<Delivering, Delivered, Votes>>
 
@@ -222,15 +223,15 @@ AssignTimestamp(self) ==
 (*                                                                         *)
 (*     This method is executed only by the "coordinator", this coordinator *)
 (* is the original source of the message. This method processes messages   *)
-(* on state S2, and can proceed in two ways. The first option is that we   *)
+(* on state S1, and can proceed in two ways. The first option is that we   *)
 (* already have all votes needed for the message, so we can proceed to     *)
-(* choose the final timestamp and broadcast the message on state S3 to all *)
+(* choose the final timestamp and broadcast the message on state S2 to all *)
 (* processes. If the messages does not have all needed votes, then we save *)
 (* the vote for the message on the `Votes` structure.                      *)
 (*                                                                         *)
 (***************************************************************************)
 ComputeSeqNumber(self) ==
-    \E <<state, msg>> \in {<<s, x>> \in Network[self]: s = "S2" /\ x.s = self}:
+    \E <<state, msg>> \in {<<s, x>> \in Network[self]: s = "S1" /\ x.s = self}:
         LET
             votedTs == {<<m.o, m.ts>> : m \in {x \in Votes[self] \cup {msg}: x.id = msg.id}}
         IN
@@ -240,7 +241,7 @@ ComputeSeqNumber(self) ==
                      IN
                       /\ Votes' = [Votes EXCEPT ![self] = {x \in Votes[self] : x.id /= msg.id}]
                       /\ Network' = [dest \in Processes |-> IF dest \in msg.d
-                                        THEN (Network[dest] \ {<<state, msg>>}) \cup {<<"S3", built>>}
+                                        THEN (Network[dest] \ {<<state, msg>>}) \cup {<<"S2", built>>}
                                         ELSE Network[dest]]
                       /\ UNCHANGED <<K, PreviousMsgs, Pending, Delivering, Delivered>>
                \/ /\ Cardinality(votedTs) < Cardinality(msg.d)
@@ -265,7 +266,7 @@ ComputeSeqNumber(self) ==
 AssignSeqNumber(self) ==
     /\ \E m1 \in Pending[self] :
         \E <<state, m2>> \in Network[self] :
-            /\ state = "S3" 
+            /\ state = "S2" 
             /\ m2.id = m1.id
             /\ \/ /\ m2.ts > K[self]
                   /\ \/ /\ \E prev \in PreviousMsgs[self]: Conflict(m2, prev)
@@ -418,9 +419,9 @@ RHS(p, q, m, n) ==
         IN
         AssertDeliveryOrder(pm, pn, qm, qn)
 PartialOrder ==
-    []\A p, q \in Processes:
+    [](\A p, q \in Processes:
         \A m, n \in ToSend:
-            LHS(p, q, m, n) => RHS(p, q, m, n)
+            LHS(p, q, m, n) => RHS(p, q, m, n))
 
 (***************************************************************************)
 (*                                                                         *)
