@@ -90,7 +90,7 @@ ComputeGroupSeqNumber(p, q) ==
            \/ /\ Cardinality(m.d) = 1
               /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 3])]
               /\ UNCHANGED ProcessComm
-        /\ GBCast' = [GBCast EXCEPT ![p][q] = Remove(GBCast[p][q], m)]
+        /\ GBCast' = [GBCast EXCEPT ![p][q] = GBDeliver(GBCast[p][q], m)]
         /\ UNCHANGED Delivered
 
 GatherGroupsTimestamp(p, q) ==
@@ -105,11 +105,10 @@ GatherGroupsTimestamp(p, q) ==
                   /\ UNCHANGED <<K, PreviousMsgs, GBCast, Delivered>>
                \/ /\ m.ts < Max(timestamps)
                   /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], n)]
-                  /\ GBCast' = [GBCast EXCEPT ![p] = [qq \in Processes |-> Insert(GBCast[p][qq], n, Conflict)]]
+                  /\ GBCast' = [GBCast EXCEPT ![p] = GenericBroadcast(GBCast[p], n, Conflict)]
                   /\ UNCHANGED <<K, PreviousMsgs, Delivered>>
             /\ ProcessComm' = [ProcessComm EXCEPT ![p][q] = @ \ msgs]
 
-MaybeInsert(p, s) == IF p % 2 = 0 THEN {} ELSE s
 DoDeliver(p, q) ==
     \E m \in Mem[p][q]: CanDeliver(m, Mem[p][q], Conflict)
         /\ LET

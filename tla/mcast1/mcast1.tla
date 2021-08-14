@@ -1,6 +1,6 @@
 --------------------    MODULE mcast1    --------------------
 
-EXTENDS Naturals, FiniteSets, Sequences
+EXTENDS Naturals, FiniteSets, Sequences, ABC, Network, Helper
 
 CONSTANTS 
     NPARTITIONS,
@@ -11,18 +11,9 @@ CONSTANTS
 Processes == 1 .. NPROCESS
 Partitions == 1 .. NPARTITIONS
 
-ChoosePartition == CHOOSE pa \in SUBSET Partitions: Cardinality(pa) > 0
+ChoosePartition == CHOOSE p \in SUBSET Partitions: Cardinality(p) > 0
 Messages == [m \in 1 .. NMESSAGES |-> [id |-> m, d |-> Partitions, ts |-> 0, s |-> 0]]
 ToSend == {Messages[i] : i \in 1 .. NMESSAGES}
-OnlyIncluded(pa) == {m \in Messages: pa \in m.d}
-
-IsEven(x) == x % 2 = 0
-ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
-AlwaysConflict(x, y) == TRUE
-
-Max(S) == CHOOSE x \in S: \A y \in S : x >= y
-
-UpdateMessageState(S, m) == IF Cardinality(S) = 0 THEN {m} ELSE {IF n.id /= m.id THEN n ELSE m : n \in S}
 
 \* Verify the input values.
 ASSUME 
@@ -35,13 +26,17 @@ ASSUME
     \* greater than 0.
     /\ NMESSAGES \in (Nat \ {0})
 
+IsEven(x) == x % 2 = 0
+ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
+AlwaysConflict(x, y) == TRUE
+
 VARIABLES 
     K,
     Mem,
     PreviousMsgs,
     ABCast,
     Delivered,
-    Network
+    ProcessComm
 
 vars == <<
     K,
@@ -49,7 +44,7 @@ vars == <<
     PreviousMsgs,
     Delivered,
     ABCast,
-    Network >>
+    ProcessComm >>
 
 --------------------------------------------------------------
 InitProtocol ==
@@ -60,14 +55,14 @@ InitProtocol ==
 
 InitHelpers ==
     /\ ABCast = [i \in Partitions |-> [p \in Processes |-> Messages]]
-    /\ Network = [i \in Partitions |-> [p \in Processes |-> {}]]
+    /\ ProcessComm = [i \in Partitions |-> [p \in Processes |-> {}]]
 
 Init == InitProtocol /\ InitHelpers
 
 ComputeGroupSeqNumber(p, q) ==
-    /\ Len(ABCast[p][q]) > 0
+    /\ HasValue(ABCast[p][q])
     /\ LET
-        m == Head(ABCast[p][q])
+        m == Peek(ABCast[p][q])
        IN
         /\ \/ /\ m.s = 0
               /\ \/ /\ \E n \in PreviousMsgs[p][q]: Conflict(m, n)
@@ -79,47 +74,40 @@ ComputeGroupSeqNumber(p, q) ==
            \/ /\ m.s /= 0
         /\ \/ /\ Cardinality(m.d) > 1
               /\ \/ /\ m.s = 0
-                    /\ Mem' = [Mem EXCEPT ![p][q] = (@ \ {m}) \cup {[id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 1]}]
-                    /\ Network' = [pp \in Partitions |-> IF pp \in m.d
-                            THEN [qq \in Processes |-> Network[pp][qq] \cup {[id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 1, o |-> p]}]
-                            ELSE Network[pp]]
+                    /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 1])]
+                    /\ ProcessComm' = Send(ProcessComm, [id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 1, o |-> p])
                  \/ /\ m.s = 2
                     /\ \/ /\ m.ts > K[p][q]
                           /\ K' = [K EXCEPT ![p][q] = m.ts]
                           /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = {}]
                        \/ /\ m.ts <= K[p][q]
                           /\ UNCHANGED <<K, PreviousMsgs>>
-                    /\ Mem' = [Mem EXCEPT ![p][q] = UpdateMessageState(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3])]
-                    /\ UNCHANGED Network
+                    /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3])]
+                    /\ UNCHANGED ProcessComm
            \/ /\ Cardinality(m.d) = 1
-              /\ Mem' = [Mem EXCEPT ![p][q] = (@ \ {m}) \cup {[id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 3]}]
-              /\ UNCHANGED Network
-        /\ ABCast' = [ABCast EXCEPT ![p][q] = Tail(ABCast[p][q])]
+              /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 3])]
+              /\ UNCHANGED ProcessComm
+        /\ ABCast' = [ABCast EXCEPT ![p][q] = ABDeliver(ABCast[p][q])]
         /\ UNCHANGED Delivered
 
 GatherGroupsTimestamp(p, q) ==
-    \E m \in Mem[p][q]: m.s = 1 /\ Cardinality(m.d) = Cardinality({v.o : v \in {x \in Network[p][q]: x.id = m.id}})
+    \E m \in Mem[p][q]: HasReceivedFromAllPartitions(m, ProcessComm[p][q])
         /\ LET
-            timestamps == {v.ts : v \in {x \in Network[p][q]: x.id = m.id}}
-            msgs == {x \in Network[p][q]: x.id = m.id}
+            timestamps == {v.ts : v \in {x \in ProcessComm[p][q]: x.id = m.id}}
+            msgs == {x \in ProcessComm[p][q]: x.id = m.id}
+            n == [id |-> m.id, d |-> m.d, ts |-> Max(timestamps), s |-> 2]
            IN
             /\ \/ /\ m.ts >= Max(timestamps)
-                  /\ Mem' = [Mem EXCEPT ![p][q] = UpdateMessageState(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3])]
+                  /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3])]
                   /\ UNCHANGED <<K, PreviousMsgs, ABCast, Delivered>>
                \/ /\ m.ts < Max(timestamps)
-                  /\ Mem' = [Mem EXCEPT ![p][q] = UpdateMessageState(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> Max(timestamps), s |-> 2])]
-                  /\ ABCast' = [ABCast EXCEPT ![p] =
-                        [qq \in Processes |-> Append(ABCast[p][qq], [id |-> m.id, d |-> m.d, ts |-> Max(timestamps), s |-> 2])]]
+                  /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], n)]
+                  /\ ABCast' = [ABCast EXCEPT ![p] = AtomicBroadcast(ABCast[p], n)]
                   /\ UNCHANGED <<K, PreviousMsgs, Delivered>>
-            /\ Network' = [Network EXCEPT ![p][q] = @ \ msgs]
+            /\ ProcessComm' = [ProcessComm EXCEPT ![p][q] = @ \ msgs]
 
 DoDeliver(p, q) ==
-    \E m \in Mem[p][q]:
-        /\ m.s = 3
-        /\ \A n \in Mem[p][q] \ {m}:
-            /\ m.ts <= n.ts
-            /\ \/ ~Conflict(m, n)
-               \/ m.id < n.id \/ m.ts < n.ts
+    \E m \in Mem[p][q]: CanDeliver(m, Mem[p][q], Conflict)
         /\ LET
             G == {mm \in Mem[p][q]: \A nn \in Mem[p][q] \ {mm}: mm.s = 3 /\ ~Conflict(mm, nn)}
             D == {m} \cup G
@@ -127,16 +115,16 @@ DoDeliver(p, q) ==
            IN
             /\ Mem' = [Mem EXCEPT ![p][q] = @ \ D]
             /\ Delivered' = [Delivered EXCEPT ![p][q] = Delivered[p][q] \cup {<<index, D>>}]
-            /\ UNCHANGED <<K, PreviousMsgs, ABCast, Network>>
+            /\ UNCHANGED <<K, PreviousMsgs, ABCast, ProcessComm>>
 
 --------------------------------------------------------------
-Step(pa, pr) ==
-    \/ ComputeGroupSeqNumber(pa, pr)
-    \/ GatherGroupsTimestamp(pa, pr)
-    \/ DoDeliver(pa, pr)
+Step(p, q) ==
+    \/ ComputeGroupSeqNumber(p, q)
+    \/ GatherGroupsTimestamp(p, q)
+    \/ DoDeliver(p, q)
 
-PartitionStep(pa) ==
-    \E pr \in Processes: Step(pa, pr)
+PartitionStep(p) ==
+    \E q \in Processes: Step(p, q)
 
 Next ==
     \/ \E self \in Partitions: PartitionStep(self)
@@ -145,8 +133,8 @@ Next ==
 Spec == Init /\ [][Next]_vars
              /\ WF_vars(\E self \in Partitions: PartitionStep(self))
 --------------------------------------------------------------
-WasDelivered(pa, pr, m) ==
-    \E <<i, msgs>> \in Delivered[pa][pr]: \E n \in msgs: m.id = n.id
+WasDelivered(p, q, m) ==
+    \E <<i, msgs>> \in Delivered[p][q]: \E n \in msgs: m.id = n.id
 ExistProcessDeliver(p, m) ==
     \E q \in Processes: WasDelivered(p, q, m)
 AllProcessDeliver(p, m) ==
@@ -155,9 +143,9 @@ ExistsDeliver(m) ==
     \E p \in m.d: ExistProcessDeliver(p, m)
 AllPartitionsDeliver(m) ==
     \A p \in m.d: AllProcessDeliver(p, m)
-DeliveredOnlyOnce(pa, pr, m) == Cardinality({x \in Delivered[pa][pr]: \E n \in x[2]: n.id = m.id}) = 1
-DeliveredIndex(pa, m) ==
-    (CHOOSE <<i, msgs>> \in UNION {Delivered[pa][x]: x \in DOMAIN Delivered[pa]}: \E n \in msgs: n.id = m.id)[1]
+DeliveredOnlyOnce(p, q, m) == Cardinality({x \in Delivered[p][q]: \E n \in x[2]: n.id = m.id}) = 1
+DeliveredIndex(p, m) ==
+    (CHOOSE <<i, msgs>> \in UNION {Delivered[p][x]: x \in DOMAIN Delivered[p]}: \E n \in msgs: n.id = m.id)[1]
 
 Validity ==
     <>[]\A m \in ToSend:
@@ -170,20 +158,20 @@ Agreement ==
 Integrity ==
     <>[]\A m \in ToSend:
         \A p \in m.d:
-            \A q \in {x \in Processes: WasDelivered(p, x, m)}:
+            \A q \in Filter(Processes, LAMBDA x: WasDelivered(p, x, m)):
                 DeliveredOnlyOnce(p, q, m)
 
 AssertDeliveryOrder(pm, pn, qm, qn) == 
     \/ ((pm < pn) /\ (qm < qn))
     \/ (~(pm < pn) /\ ~(qm < qn))
-BothDelivered(pa, qa, pr, qr, m, n) ==
-    /\ WasDelivered(pa, pr, m) /\ WasDelivered(pa, pr, n)
-    /\ WasDelivered(qa, qr, m) /\ WasDelivered(qa, qr, n)
-LHS(pa, qa, m, n) ==
-    /\ {pa, qa} \subseteq (m.d \intersect n.d)
+BothDelivered(p, pp, q, qq, m, n) ==
+    /\ WasDelivered(p, q, m) /\ WasDelivered(p, q, n)
+    /\ WasDelivered(pp, qq, m) /\ WasDelivered(pp, qq, n)
+LHS(p, pp, m, n) ==
+    /\ {p, pp} \subseteq (m.d \intersect n.d)
     /\ Conflict(m, n)
-    /\ \E pr, qr \in Processes:
-        BothDelivered(pa, qa, pr, qr, m, n)
+    /\ \E q, qq \in Processes:
+        BothDelivered(p, pp, q, qq, m, n)
 RHS(p, q, m, n) ==
     /\ LET
         pm == DeliveredIndex(p, m)
@@ -194,8 +182,8 @@ RHS(p, q, m, n) ==
         AssertDeliveryOrder(pm, pn, qm, qn)
 PartialOrder ==
     []\A m, n \in ToSend:
-        \A p, q \in Partitions:
-            LHS(p, q, m, n) => RHS(p, q, m, n)
+        \A p, pp \in Partitions:
+            LHS(p, pp, m, n) => RHS(p, pp, m, n)
 
 Collision ==
     []\A p \in Partitions:

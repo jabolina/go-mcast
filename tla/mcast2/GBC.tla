@@ -13,28 +13,16 @@ IsEmpty(s) ==
 HasValue(s) ==
     Len(s) > 0 /\ Cardinality(Head(s)) > 0
 
-(**************************************************************************)
-(* TRUE if the element e is in one of sets inside the sequence s.         *)
-(**************************************************************************)
-Contains(s, e) ==
-    \E i \in 1..Len(s): e \in s[i]
-
 ReplaceAt(s, i, e) ==
     [s EXCEPT ![i] = e]
 
 (**************************************************************************)
 (* Return the sequence of sets s without the element e.                   *)
 (**************************************************************************)
-Remove(s, e) ==
+GBDeliver(s, e) ==
     IF Cardinality(Head(s)) > 1
         THEN ReplaceAt(s, 1, Head(s) \ {e})
         ELSE SubSeq(s, 2, Len(s))
-
-(**************************************************************************)
-(* Replaces the element at position i shortening the length of s by one.  *)
-(**************************************************************************)
-RemoveAt(s, i) ==
-    SubSeq(s, 1, i - 1) \o SubSeq(s, i + 1, Len(s))
 
 (**************************************************************************)
 (* Remove that last element of the sequence.                              *)
@@ -54,6 +42,8 @@ Peek(s) ==
 (* TRUE, then the element will be added to the tail of the sequence.      *)
 (* Otherwise the element is inserted into the set at the last position.   *)
 (**************************************************************************)
+GenericBroadcast(s, e, pred(_, _)) ==
+    [i \in 1..Len(s) |-> Insert(s[i], e, pred)]
 Insert(s, e, pred(_, _)) ==
     IF IsEmpty(s) \/ \E v \in s[Len(s)]: pred(v, e)
         THEN Append(s, {e})
