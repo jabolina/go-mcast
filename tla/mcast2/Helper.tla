@@ -15,7 +15,7 @@ InsertOrUpdate(s, m) ==
     Filter(s, LAMBDA n: n.id /= m.id) \cup {m}
 
 HasReceivedFromAllPartitions(m, network) ==
-    m.s = 1 /\ Cardinality(m.d) = Cardinality({v.o : v \in Filter(network, LAMBDA x: x.id = m.id)})
+    Cardinality(m.d) = Cardinality({v.o : v \in Filter(network, LAMBDA x: x.id = m.id)})
 
 CanDeliver(m, s, op(_, _)) ==
     /\ m.s = 3

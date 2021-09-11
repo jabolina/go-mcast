@@ -42,11 +42,11 @@ Peek(s) ==
 (* TRUE, then the element will be added to the tail of the sequence.      *)
 (* Otherwise the element is inserted into the set at the last position.   *)
 (**************************************************************************)
+Insert(s, e, pred(_, _)) ==
+    IF IsEmpty(s) \/ ~IsEmpty(SelectSeq(s, LAMBDA v: \E n \in v: pred(e, n)))
+        THEN Append(s, {e})
+        ELSE ReplaceAt(s, Len(s), s[Len(s)] \cup {e})
 GenericBroadcast(s, e, pred(_, _)) ==
     [i \in 1..Len(s) |-> Insert(s[i], e, pred)]
-Insert(s, e, pred(_, _)) ==
-    IF IsEmpty(s) \/ \E v \in s[Len(s)]: pred(v, e)
-        THEN Append(s, {e})
-        ELSE Append(RemoveLast(s), s[Len(s)] \cup {e})
 
 ==========================================================

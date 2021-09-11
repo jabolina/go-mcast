@@ -7,13 +7,6 @@ CONSTANTS
     NMESSAGES,
     Conflict(_,_)
 
-Processes == 1 .. NPROCESS
-Partitions == 1 .. NPARTITIONS
-
-ChoosePartition == CHOOSE pa \in SUBSET Partitions: Cardinality(pa) > 0
-Messages == [m \in 1 .. NMESSAGES |-> {[id |-> m, d |-> Partitions, ts |-> 0, s |-> 0]}]
-ToSend == UNION {Messages[i] : i \in 1 .. NMESSAGES}
-
 \* Verify the input values.
 ASSUME 
     /\ NPARTITIONS \in (Nat \ {0})
@@ -29,7 +22,17 @@ ASSUME
 IsEven(x) == x % 2 = 0
 ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
 AlwaysConflict(x, y) == TRUE
+
+IsMajority(s) == Cardinality(s) >= (NPROCESS \div 2) + 1
 --------------------------------------------------------------
+
+AllProcesses == 1 .. NPROCESS
+Processes == CHOOSE v \in (SUBSET AllProcesses): IsMajority(v)
+Partitions == 1 .. NPARTITIONS
+
+ChoosePartition == CHOOSE pa \in SUBSET Partitions: Cardinality(pa) > 0
+Messages == [m \in 1 .. NMESSAGES |-> {[id |-> m, d |-> Partitions, ts |-> 0, s |-> 0]}]
+ToSend == UNION {Messages[i] : i \in 1 .. NMESSAGES}
 
 VARIABLES 
     K,
@@ -94,7 +97,7 @@ ComputeGroupSeqNumber(p, q) ==
         /\ UNCHANGED Delivered
 
 GatherGroupsTimestamp(p, q) ==
-    \E m \in Mem[p][q]: HasReceivedFromAllPartitions(m, ProcessComm[p][q])
+    \E m \in Mem[p][q]: m.s = 1 /\ HasReceivedFromAllPartitions(m, ProcessComm[p][q])
         /\ LET
             timestamps == {v.ts : v \in {x \in ProcessComm[p][q]: x.id = m.id}}
             msgs == {x \in ProcessComm[p][q]: x.id = m.id}
@@ -122,12 +125,13 @@ DoDeliver(p, q) ==
 
 --------------------------------------------------------------
 Step(p, q) ==
+    \/ ~(q \in Processes)
     \/ ComputeGroupSeqNumber(p, q)
     \/ GatherGroupsTimestamp(p, q)
     \/ DoDeliver(p, q)
 
 PartitionStep(p) ==
-    \E q \in Processes: Step(p, q)
+    \E q \in AllProcesses: Step(p, q)
 
 Next ==
     \/ \E p \in Partitions: PartitionStep(p)
