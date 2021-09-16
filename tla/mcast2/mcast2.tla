@@ -26,8 +26,8 @@ AlwaysConflict(x, y) == TRUE
 IsMajority(s) == Cardinality(s) >= (NPROCESS \div 2) + 1
 --------------------------------------------------------------
 
-AllProcesses == 1 .. NPROCESS
-Processes == CHOOSE v \in (SUBSET AllProcesses): IsMajority(v)
+Processes == 1 .. NPROCESS
+CorrectProcesses == CHOOSE v \in (SUBSET Processes): IsMajority(v)
 Partitions == 1 .. NPARTITIONS
 
 ChoosePartition == CHOOSE pa \in SUBSET Partitions: Cardinality(pa) > 0
@@ -125,13 +125,14 @@ DoDeliver(p, q) ==
 
 --------------------------------------------------------------
 Step(p, q) ==
-    \/ ~(q \in Processes)
-    \/ ComputeGroupSeqNumber(p, q)
-    \/ GatherGroupsTimestamp(p, q)
-    \/ DoDeliver(p, q)
+    IF q \in CorrectProcesses THEN
+        \/ ComputeGroupSeqNumber(p, q)
+        \/ GatherGroupsTimestamp(p, q)
+        \/ DoDeliver(p, q)
+    ELSE UNCHANGED vars
 
 PartitionStep(p) ==
-    \E q \in AllProcesses: Step(p, q)
+    \E q \in Processes: Step(p, q)
 
 Next ==
     \/ \E p \in Partitions: PartitionStep(p)
@@ -146,7 +147,7 @@ WasDelivered(pa, pr, m) ==
 ExistProcessDeliver(p, m) ==
     \E q \in Processes: WasDelivered(p, q, m)
 AllProcessDeliver(p, m) ==
-    \A q \in Processes: WasDelivered(p, q, m)
+    \A q \in CorrectProcesses: WasDelivered(p, q, m)
 ExistsDeliver(m) ==
     \E p \in m.d: ExistProcessDeliver(p, m)
 AllPartitionsDeliver(m) ==
@@ -167,7 +168,7 @@ Agreement ==
 Integrity ==
     <>[]\A m \in ToSend:
         \A p \in m.d:
-            \A q \in {x \in Processes: WasDelivered(p, x, m)}:
+            \A q \in {x \in CorrectProcesses: WasDelivered(p, x, m)}:
                 DeliveredOnlyOnce(p, q, m)
 
 AssertDeliveryOrder(pm, pn, qm, qn) == 
@@ -179,7 +180,7 @@ BothDelivered(pa, qa, pr, qr, m, n) ==
 LHS(pa, qa, m, n) ==
     /\ {pa, qa} \subseteq (m.d \intersect n.d)
     /\ Conflict(m, n)
-    /\ \E pr, qr \in Processes:
+    /\ \E pr, qr \in CorrectProcesses:
         BothDelivered(pa, qa, pr, qr, m, n)
 RHS(p, q, m, n) ==
     /\ LET
