@@ -1,6 +1,6 @@
 --------------------    MODULE mcast1    --------------------
 
-EXTENDS Naturals, FiniteSets, Sequences, ABC, Network, Helper
+EXTENDS Naturals, FiniteSets, Sequences, ABC, Network, Failures, Helper
 
 CONSTANTS 
     NPARTITIONS,
@@ -23,10 +23,7 @@ IsEven(x) == x % 2 = 0
 ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
 AlwaysConflict(x, y) == TRUE
 
-IsMajority(s) == Cardinality(s) >= (NPROCESS \div 2) + 1
-
 AllProcesses == 1 .. NPROCESS
-Processes == CHOOSE v \in (SUBSET AllProcesses): IsMajority(v)
 Partitions == 1 .. NPARTITIONS
 
 ChoosePartition == CHOOSE p \in SUBSET Partitions: Cardinality(p) > 0
@@ -39,7 +36,9 @@ VARIABLES
     PreviousMsgs,
     ABCast,
     Delivered,
-    ProcessComm
+    ProcessComm,
+    CorrectProcesses,
+    CrashedProcesses
 
 vars == <<
     K,
@@ -47,18 +46,22 @@ vars == <<
     PreviousMsgs,
     Delivered,
     ABCast,
-    ProcessComm >>
+    ProcessComm,
+    CorrectProcesses,
+    CrashedProcesses >>
 
 --------------------------------------------------------------
 InitProtocol ==
-    /\ K = [i \in Partitions |-> [p \in Processes |-> 0]]
-    /\ Mem = [i \in Partitions |-> [p \in Processes |-> {}]]
-    /\ PreviousMsgs = [i \in Partitions |-> [p \in Processes |-> {}]]
-    /\ Delivered = [i \in Partitions |-> [p \in Processes |-> {}]]
+    /\ K = [i \in Partitions |-> [p \in AllProcesses |-> 0]]
+    /\ Mem = [i \in Partitions |-> [p \in AllProcesses |-> {}]]
+    /\ PreviousMsgs = [i \in Partitions |-> [p \in AllProcesses |-> {}]]
+    /\ Delivered = [i \in Partitions |-> [p \in AllProcesses |-> {}]]
 
 InitHelpers ==
-    /\ ABCast = [i \in Partitions |-> [p \in Processes |-> Messages]]
-    /\ ProcessComm = [i \in Partitions |-> [p \in Processes |-> {}]]
+    /\ ABCast = [i \in Partitions |-> [p \in AllProcesses |-> Messages]]
+    /\ ProcessComm = [i \in Partitions |-> [p \in AllProcesses |-> {}]]
+    /\ CorrectProcesses = [i \in Partitions |-> {j : j \in AllProcesses}]
+    /\ CrashedProcesses = [i \in Partitions |-> {}]
 
 Init == InitProtocol /\ InitHelpers
 
@@ -91,7 +94,7 @@ ComputeGroupSeqNumber(p, q) ==
               /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 3])]
               /\ UNCHANGED ProcessComm
         /\ ABCast' = [ABCast EXCEPT ![p][q] = ABDeliver(ABCast[p][q])]
-        /\ UNCHANGED Delivered
+        /\ UNCHANGED <<Delivered, CorrectProcesses, CrashedProcesses>>
 
 GatherGroupsTimestamp(p, q) ==
     \E m \in Mem[p][q]: HasReceivedFromAllPartitions(m, ProcessComm[p][q])
@@ -108,7 +111,9 @@ GatherGroupsTimestamp(p, q) ==
                   /\ ABCast' = [ABCast EXCEPT ![p] = AtomicBroadcast(ABCast[p], n)]
                   /\ UNCHANGED <<K, PreviousMsgs, Delivered>>
             /\ ProcessComm' = [ProcessComm EXCEPT ![p][q] = @ \ msgs]
+            /\ UNCHANGED <<CorrectProcesses, CrashedProcesses>>
 
+MaybeNotDeliver(q, s) == IF q = 2 THEN {} ELSE s
 DoDeliver(p, q) ==
     \E m \in Mem[p][q]: CanDeliver(m, Mem[p][q], Conflict)
         /\ LET
@@ -117,18 +122,25 @@ DoDeliver(p, q) ==
             index == Cardinality(Delivered[p][q])
            IN
             /\ Mem' = [Mem EXCEPT ![p][q] = @ \ D]
-            /\ Delivered' = [Delivered EXCEPT ![p][q] = Delivered[p][q] \cup {<<index, D>>}]
-            /\ UNCHANGED <<K, PreviousMsgs, ABCast, ProcessComm>>
+            /\ Delivered' = [Delivered EXCEPT ![p][q] = Delivered[p][q] \cup {<<index, MaybeNotDeliver(q, D)>>}]
+            /\ UNCHANGED <<K, PreviousMsgs, ABCast, ProcessComm, CorrectProcesses, CrashedProcesses>>
 
 --------------------------------------------------------------
 Step(p, q) ==
-    \/ ~(q \in Processes)
     \/ ComputeGroupSeqNumber(p, q)
     \/ GatherGroupsTimestamp(p, q)
     \/ DoDeliver(p, q)
 
+ProceedOrFail(p, q) ==
+    IF WillFail(q, CorrectProcesses[p], NPROCESS) THEN
+        /\ CorrectProcesses' = [CorrectProcesses EXCEPT ![p] = @ \ {q}]
+        /\ CrashedProcesses' = [CrashedProcesses EXCEPT ![p] = CrashedProcesses[p] \cup {q}]
+        /\ UNCHANGED <<K, Mem, PreviousMsgs, Delivered, ABCast, ProcessComm>>
+    ELSE Step(p, q)
+
 PartitionStep(p) ==
-    \E q \in AllProcesses: Step(p, q)
+    \E q \in AllProcesses: 
+        IF q \in CorrectProcesses[p] THEN Step(p, q) ELSE UNCHANGED vars
 
 Next ==
     \/ \E self \in Partitions: PartitionStep(self)
@@ -140,9 +152,9 @@ Spec == Init /\ [][Next]_vars
 WasDelivered(p, q, m) ==
     \E <<i, msgs>> \in Delivered[p][q]: \E n \in msgs: m.id = n.id
 ExistProcessDeliver(p, m) ==
-    \E q \in Processes: WasDelivered(p, q, m)
+    \E q \in AllProcesses: WasDelivered(p, q, m)
 AllProcessDeliver(p, m) ==
-    \A q \in Processes: WasDelivered(p, q, m)
+    \A q \in CorrectProcesses[p]: WasDelivered(p, q, m)
 ExistsDeliver(m) ==
     \E p \in m.d: ExistProcessDeliver(p, m)
 AllPartitionsDeliver(m) ==
@@ -162,7 +174,7 @@ Agreement ==
 Integrity ==
     <>[]\A m \in ToSend:
         \A p \in m.d:
-            \A q \in Filter(Processes, LAMBDA x: WasDelivered(p, x, m)):
+            \A q \in Filter(CorrectProcesses[p], LAMBDA x: WasDelivered(p, x, m)):
                 DeliveredOnlyOnce(p, q, m)
 
 AssertDeliveryOrder(pm, pn, qm, qn) == 
@@ -174,7 +186,7 @@ BothDelivered(p, pp, q, qq, m, n) ==
 LHS(p, pp, m, n) ==
     /\ {p, pp} \subseteq (m.d \intersect n.d)
     /\ Conflict(m, n)
-    /\ \E q, qq \in Processes:
+    /\ \E q, qq \in AllProcesses:
         BothDelivered(p, pp, q, qq, m, n)
 RHS(p, q, m, n) ==
     /\ LET
