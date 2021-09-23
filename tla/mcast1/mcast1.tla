@@ -1,6 +1,6 @@
 --------------------    MODULE mcast1    --------------------
 
-EXTENDS Naturals, FiniteSets, Sequences, ABC, Network, Failures, Helper
+EXTENDS Naturals, FiniteSets, Sequences, ABC, Network, Helper
 
 CONSTANTS 
     NPARTITIONS,
@@ -37,8 +37,7 @@ VARIABLES
     ABCast,
     Delivered,
     ProcessComm,
-    CorrectProcesses,
-    CrashedProcesses
+    CorrectProcesses
 
 vars == <<
     K,
@@ -47,8 +46,7 @@ vars == <<
     Delivered,
     ABCast,
     ProcessComm,
-    CorrectProcesses,
-    CrashedProcesses >>
+    CorrectProcesses >>
 
 --------------------------------------------------------------
 InitProtocol ==
@@ -60,8 +58,7 @@ InitProtocol ==
 InitHelpers ==
     /\ ABCast = [i \in Partitions |-> [p \in AllProcesses |-> Messages]]
     /\ ProcessComm = [i \in Partitions |-> [p \in AllProcesses |-> {}]]
-    /\ CorrectProcesses = [i \in Partitions |-> {j : j \in AllProcesses}]
-    /\ CrashedProcesses = [i \in Partitions |-> {}]
+    /\ CorrectProcesses = [i \in Partitions |-> AllProcesses]
 
 Init == InitProtocol /\ InitHelpers
 
@@ -77,7 +74,6 @@ ComputeGroupSeqNumber(p, q) ==
                  \/ /\ \A n \in PreviousMsgs[p][q]: ~Conflict(m, n)
                     /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = PreviousMsgs[p][q] \cup {m}]
                     /\ UNCHANGED K
-           \/ /\ m.s /= 0
         /\ \/ /\ Cardinality(m.d) > 1
               /\ \/ /\ m.s = 0
                     /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 1])]
@@ -94,7 +90,7 @@ ComputeGroupSeqNumber(p, q) ==
               /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 3])]
               /\ UNCHANGED ProcessComm
         /\ ABCast' = [ABCast EXCEPT ![p][q] = ABDeliver(ABCast[p][q])]
-        /\ UNCHANGED <<Delivered, CorrectProcesses, CrashedProcesses>>
+        /\ UNCHANGED <<Delivered, CorrectProcesses>>
 
 GatherGroupsTimestamp(p, q) ==
     \E m \in Mem[p][q]: HasReceivedFromAllPartitions(m, ProcessComm[p][q])
@@ -111,9 +107,8 @@ GatherGroupsTimestamp(p, q) ==
                   /\ ABCast' = [ABCast EXCEPT ![p] = AtomicBroadcast(ABCast[p], n)]
                   /\ UNCHANGED <<K, PreviousMsgs, Delivered>>
             /\ ProcessComm' = [ProcessComm EXCEPT ![p][q] = @ \ msgs]
-            /\ UNCHANGED <<CorrectProcesses, CrashedProcesses>>
+            /\ UNCHANGED CorrectProcesses
 
-MaybeNotDeliver(q, s) == IF q = 2 THEN {} ELSE s
 DoDeliver(p, q) ==
     \E m \in Mem[p][q]: CanDeliver(m, Mem[p][q], Conflict)
         /\ LET
@@ -122,25 +117,29 @@ DoDeliver(p, q) ==
             index == Cardinality(Delivered[p][q])
            IN
             /\ Mem' = [Mem EXCEPT ![p][q] = @ \ D]
-            /\ Delivered' = [Delivered EXCEPT ![p][q] = Delivered[p][q] \cup {<<index, MaybeNotDeliver(q, D)>>}]
-            /\ UNCHANGED <<K, PreviousMsgs, ABCast, ProcessComm, CorrectProcesses, CrashedProcesses>>
+            /\ Delivered' = [Delivered EXCEPT ![p][q] = Delivered[p][q] \cup {<<index, D>>}]
+            /\ UNCHANGED <<K, PreviousMsgs, ABCast, ProcessComm, CorrectProcesses>>
+
+MaybeCrash(p, q) ==
+    /\ q \in CorrectProcesses[p]
+    /\ Cardinality(CorrectProcesses[p] \ {q}) >= (NPROCESS \div 2) + 1
+    /\ CorrectProcesses' = [CorrectProcesses EXCEPT ![p] = @ \ {q}]
+    /\ UNCHANGED <<K, Mem, PreviousMsgs, Delivered, ABCast, ProcessComm>>
+
+NoOpCrashed(p, q) ==
+    /\ ~(q \in CorrectProcesses[p])
+    /\ UNCHANGED vars
 
 --------------------------------------------------------------
 Step(p, q) ==
+    \/ MaybeCrash(p, q)
+    \/ NoOpCrashed(p, q)
     \/ ComputeGroupSeqNumber(p, q)
     \/ GatherGroupsTimestamp(p, q)
     \/ DoDeliver(p, q)
 
-ProceedOrFail(p, q) ==
-    IF WillFail(q, CorrectProcesses[p], NPROCESS) THEN
-        /\ CorrectProcesses' = [CorrectProcesses EXCEPT ![p] = @ \ {q}]
-        /\ CrashedProcesses' = [CrashedProcesses EXCEPT ![p] = CrashedProcesses[p] \cup {q}]
-        /\ UNCHANGED <<K, Mem, PreviousMsgs, Delivered, ABCast, ProcessComm>>
-    ELSE Step(p, q)
-
 PartitionStep(p) ==
-    \E q \in AllProcesses: 
-        IF q \in CorrectProcesses[p] THEN Step(p, q) ELSE UNCHANGED vars
+    \E q \in AllProcesses: Step(p, q)
 
 Next ==
     \/ \E self \in Partitions: PartitionStep(self)

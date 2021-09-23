@@ -1,5 +1,5 @@
 --------------------    MODULE mcast2    --------------------
-EXTENDS Naturals, FiniteSets, Sequences, GBC, Network, Failures, Helper
+EXTENDS Naturals, FiniteSets, Sequences, GBC, Network, Helper
 
 CONSTANTS 
     NPARTITIONS,
@@ -40,8 +40,7 @@ VARIABLES
     GBCast,
     Delivered,
     ProcessComm,
-    CorrectProcesses,
-    CrashedProcesses
+    CorrectProcesses
 
 vars == <<
     K,
@@ -50,8 +49,7 @@ vars == <<
     Delivered,
     GBCast,
     ProcessComm,
-    CorrectProcesses,
-    CrashedProcesses >>
+    CorrectProcesses >>
 
 --------------------------------------------------------------
 
@@ -65,7 +63,6 @@ InitHelpers ==
     /\ GBCast = [p \in Partitions |-> [q \in AllProcesses |-> Messages]]
     /\ ProcessComm = [p \in Partitions |-> [q \in AllProcesses |-> {}]]
     /\ CorrectProcesses = [p \in Partitions |-> AllProcesses]
-    /\ CrashedProcesses = [p \in Partitions |-> {}]
 
 Init == InitProtocol /\ InitHelpers
 
@@ -99,7 +96,7 @@ ComputeGroupSeqNumber(p, q) ==
               /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> K'[p][q], s |-> 3])]
               /\ UNCHANGED ProcessComm
         /\ GBCast' = [GBCast EXCEPT ![p][q] = GBDeliver(GBCast[p][q], m)]
-        /\ UNCHANGED <<Delivered, CorrectProcesses, CrashedProcesses>>
+        /\ UNCHANGED <<Delivered, CorrectProcesses>>
 
 GatherGroupsTimestamp(p, q) ==
     \E m \in Mem[p][q]: m.s = 1 /\ HasReceivedFromAllPartitions(m, ProcessComm[p][q])
@@ -116,7 +113,7 @@ GatherGroupsTimestamp(p, q) ==
                   /\ GBCast' = [GBCast EXCEPT ![p] = GenericBroadcast(GBCast[p], n, Conflict)]
                   /\ UNCHANGED <<K, PreviousMsgs, Delivered>>
             /\ ProcessComm' = [ProcessComm EXCEPT ![p][q] = @ \ msgs]
-            /\ UNCHANGED <<CorrectProcesses, CrashedProcesses>>
+            /\ UNCHANGED CorrectProcesses
 
 DoDeliver(p, q) ==
     \E m \in Mem[p][q]: CanDeliver(m, Mem[p][q], Conflict)
@@ -126,24 +123,29 @@ DoDeliver(p, q) ==
             index == Cardinality(Delivered[p][q])
            IN
             /\ Mem' = [Mem EXCEPT ![p][q] = @ \ D]
-            /\ Delivered' = [Delivered EXCEPT ![p][q] = Delivered[p][q] \cup {<<index, D>>, <<index + 1, D>>}]
-            /\ UNCHANGED <<K, PreviousMsgs, GBCast, ProcessComm, CorrectProcesses, CrashedProcesses>>
+            /\ Delivered' = [Delivered EXCEPT ![p][q] = Delivered[p][q] \cup {<<index, D>>}]
+            /\ UNCHANGED <<K, PreviousMsgs, GBCast, ProcessComm, CorrectProcesses>>
+
+MaybeCrash(p, q) ==
+    /\ q \in CorrectProcesses[p]
+    /\ Cardinality(CorrectProcesses[p] \ {q}) >= (NPROCESS \div 2) + 1
+    /\ CorrectProcesses' = [CorrectProcesses EXCEPT ![p] = @ \ {q}]
+    /\ UNCHANGED <<K, Mem, PreviousMsgs, Delivered, GBCast, ProcessComm>>
+
+NoOpCrashed(p, q) ==
+    /\ ~(q \in CorrectProcesses[p])
+    /\ UNCHANGED vars
 
 --------------------------------------------------------------
 Step(p, q) ==
+    \/ MaybeCrash(p, q)
+    \/ NoOpCrashed(p, q)
     \/ ComputeGroupSeqNumber(p, q)
     \/ GatherGroupsTimestamp(p, q)
     \/ DoDeliver(p, q)
 
-ProceedOrCrash(p, q) ==
-    IF WillFail(q, CorrectProcesses[p], NPROCESS) THEN
-        /\ CorrectProcesses' = [CorrectProcesses EXCEPT ![p] = @ \ {q}]
-        /\ CrashedProcesses' = [CrashedProcesses EXCEPT ![p] = CrashedProcesses[p] \cup {q}]
-        /\ UNCHANGED <<K, Mem, PreviousMsgs, Delivered, GBCast, ProcessComm>>
-    ELSE Step(p, q)
-
 PartitionStep(p) ==
-    \E q \in AllProcesses: IF q \in CorrectProcesses[p] THEN ProceedOrCrash(p, q) ELSE UNCHANGED vars
+    \E q \in AllProcesses: Step(p, q)
 
 Next ==
     \/ \E p \in Partitions: PartitionStep(p)
