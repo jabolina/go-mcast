@@ -22,8 +22,6 @@ ASSUME
 IsEven(x) == x % 2 = 0
 ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
 AlwaysConflict(x, y) == TRUE
-
-IsMajority(s) == Cardinality(s) >= (NPROCESS \div 2) + 1
 --------------------------------------------------------------
 
 AllProcesses == 1 .. NPROCESS
@@ -126,12 +124,27 @@ DoDeliver(p, q) ==
             /\ Delivered' = [Delivered EXCEPT ![p][q] = Delivered[p][q] \cup {<<index, D>>}]
             /\ UNCHANGED <<K, PreviousMsgs, GBCast, ProcessComm, CorrectProcesses>>
 
+--------------------------------------------------------------
+
+(*************************************************************)
+(*                                                           *)
+(*  Processes can transition from correct process to failed  *)
+(* process. Since this is a crash-stop model, processes can  *)
+(* not transition from crashed to correct.                   *)
+(*                                                           *)
+(*************************************************************)
 MaybeCrash(p, q) ==
     /\ q \in CorrectProcesses[p]
     /\ Cardinality(CorrectProcesses[p] \ {q}) >= (NPROCESS \div 2) + 1
     /\ CorrectProcesses' = [CorrectProcesses EXCEPT ![p] = @ \ {q}]
     /\ UNCHANGED <<K, Mem, PreviousMsgs, Delivered, GBCast, ProcessComm>>
 
+(*************************************************************)
+(*                                                           *)
+(*  Processes that failed will only stutter and will do      *)
+(* nothing nor changes values.                               *)
+(*                                                           *)
+(*************************************************************)
 NoOpCrashed(p, q) ==
     /\ ~(q \in CorrectProcesses[p])
     /\ UNCHANGED vars
