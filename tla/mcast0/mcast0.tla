@@ -38,6 +38,10 @@ ChooseProcess == CHOOSE x \in Processes : TRUE
 IsEven(x) == x % 2 = 0
 ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
 AlwaysConflict(x, y) == TRUE
+NeverConflict(x, y) == FALSE
+StrictlySmaller(m, n) ==
+    /\ \/ m.ts < n.ts
+       \/ m.id < n.id /\ m.ts = n.ts
 
 ChooseSubset == CHOOSE x \in SUBSET Processes: Cardinality(x) > 0
 
@@ -303,9 +307,7 @@ AssignSeqNumber(self) ==
 DoDeliver(self) ==
     \E m \in Delivering[self]:
         /\ \A n \in (Delivering[self] \cup Pending[self]) \ {m}:
-            /\ m.ts <= n.ts
-            /\ \/ ~Conflict(m, n)
-               \/ m.id < n.id \/ m.ts < n.ts
+            StrictlySmaller(m, n) \/ ~Conflict(m, n)
         /\ LET
             T == Delivering[self] \cup Pending[self]
             G == {x \in Delivering[self]: \A y \in T \ {x}: ~Conflict(x, y)}
@@ -328,7 +330,7 @@ Next ==
     \/ UNCHANGED vars
 
 Spec == Init /\ [][Next]_vars
-             /\ WF_vars(\E self \in Processes: Step(self))
+             \*/\ WF_vars(\E self \in Processes: Step(self))
 
 -----------------------------------------------------------------------------
 \* Filter the messages on the `Delivered` set, to find the tuple that holds
@@ -359,8 +361,7 @@ WasDelivered(p, m) ==
 (***************************************************************************)
 Validity ==
     \A m \in ToSend:
-        \E p \in Processes:
-            <<p, m>> \in GMCast ~> \E q \in m.d : WasDelivered(q, m)
+        m.s \in Processes ~> \E q \in m.d: WasDelivered(q, m)
 
 (***************************************************************************)
 (*                                                                         *)
@@ -375,7 +376,7 @@ Validity ==
 Agreement ==
     \A m \in ToSend:
         \A p \in Processes:
-            WasDelivered(p, m) ~> \A q \in m.d : WasDelivered(q, m)
+            WasDelivered(p, m) ~> \A q \in m.d : q \in Processes /\ WasDelivered(q, m)
 
 (***************************************************************************)
 (*                                                                         *)
@@ -390,8 +391,11 @@ Agreement ==
 (***************************************************************************)
 DeliveredOnlyOnce(p, m) == Cardinality(FilterDeliveredMessage(p, m)) = 1
 Integrity == 
-    \A <<p, m>> \in GMCast:
-        p \in Processes ~> \A q \in m.d : (WasDelivered(q, m) /\ DeliveredOnlyOnce(q, m))
+    <>[]\A m \in ToSend:
+        \A p \in m.d:
+            (p \in Processes /\ DeliveredOnlyOnce(p, m)) <=> m \in ToSend
+    (*\A <<p, m>> \in GMCast:
+        p \in Processes ~> \A q \in m.d: (WasDelivered(q, m) /\ DeliveredOnlyOnce(q, m))*)
 
 (***************************************************************************)
 (*                                                                         *)
@@ -417,11 +421,14 @@ RHS(p, q, m, n) ==
         qm == DeliveredIndex(q, m)
         qn == DeliveredIndex(q, n)
         IN
-        AssertDeliveryOrder(pm, pn, qm, qn)
+         /\ (pm < pn) <=> (qm < qn)
 PartialOrder ==
-    [](\A p, q \in Processes:
+    []\A p, q \in Processes:
         \A m, n \in ToSend:
-            LHS(p, q, m, n) => RHS(p, q, m, n))
+            LHS(p, q, m, n) => RHS(p, q, m, n)
+    (*[](\A p, q \in Processes:
+        \A m, n \in ToSend:
+            LHS(p, q, m, n) => RHS(p, q, m, n))*)
 
 (***************************************************************************)
 (*                                                                         *)
@@ -432,10 +439,9 @@ PartialOrder ==
 (***************************************************************************)
 Collision ==
     []\A p \in Processes:
-        \A m, n \in ToSend:
-            /\ m.id /= n.id
-                /\ p \in (m.d \intersect n.d)
-                /\ WasDelivered(p, m)
-                /\ WasDelivered(p, n)
-                /\ Conflict(m, n) => DeliveredIndex(p, m) /= DeliveredIndex(p, n)
+        \A m, n \in ToSend: /\ m.id /= n.id
+            /\ p \in (m.d \intersect n.d)
+            /\ WasDelivered(p, m)
+            /\ WasDelivered(p, n)
+            /\ Conflict(m, n) => DeliveredIndex(p, m) /= DeliveredIndex(p, n)
 ==============================================================

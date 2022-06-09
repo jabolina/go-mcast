@@ -17,11 +17,13 @@ InsertOrUpdate(s, m) ==
 HasReceivedFromAllPartitions(m, network) ==
     m.s = 1 /\ Cardinality(m.d) = Cardinality({v.o : v \in Filter(network, LAMBDA x: x.id = m.id)})
 
+StrictlySmaller(m, n) ==
+    /\ \/ m.ts < n.ts
+       \/ m.id < n.id /\ m.ts = n.ts
+
 CanDeliver(m, s, op(_, _)) ==
     /\ m.s = 3
     /\ \A n \in s \ {m}:
-        /\ m.ts <= n.ts
-        /\ \/ ~op(m, n)
-           \/ m.id < n.id \/ m.ts < n.ts
+        StrictlySmaller(m, n) \/ ~op(m, n)
 
 =============================================================

@@ -3,14 +3,14 @@
 EXTENDS Naturals, FiniteSets, Sequences, ABC, Network, Helper
 
 CONSTANTS 
-    NPARTITIONS,
+    NGROUPS,
     NPROCESS,
     NMESSAGES,
-    Conflict(_,_)
+    CONFLICTR(_,_)
 
 \* Verify the input values.
 ASSUME 
-    /\ NPARTITIONS \in (Nat \ {0})
+    /\ NGROUPS \in (Nat \ {0})
 
     \* Verify that `NPROCESS` is a natural number greater than 0.
     /\ NPROCESS \in (Nat \ {0})
@@ -22,9 +22,10 @@ ASSUME
 IsEven(x) == x % 2 = 0
 ByIdConflict(x, y) == IsEven(x.id) = IsEven(y.id)
 AlwaysConflict(x, y) == TRUE
+NeverConflict(x, y) == FALSE
 
 AllProcesses == 1 .. NPROCESS
-Partitions == 1 .. NPARTITIONS
+Partitions == 1 .. NGROUPS
 
 ChoosePartition == CHOOSE p \in SUBSET Partitions: Cardinality(p) > 0
 Messages == [m \in 1 .. NMESSAGES |-> [id |-> m, d |-> Partitions, ts |-> 0, s |-> 0]]
@@ -68,10 +69,10 @@ ComputeGroupSeqNumber(p, q) ==
         m == Peek(ABCast[p][q])
        IN
         /\ \/ /\ m.s = 0
-              /\ \/ /\ \E n \in PreviousMsgs[p][q]: Conflict(m, n)
+              /\ \/ /\ \E n \in PreviousMsgs[p][q]: CONFLICTR(m, n)
                     /\ K' = [K EXCEPT ![p][q] = K[p][q] + 1]
                     /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = {m}]
-                 \/ /\ \A n \in PreviousMsgs[p][q]: ~Conflict(m, n)
+                 \/ /\ \A n \in PreviousMsgs[p][q]: ~CONFLICTR(m, n)
                     /\ PreviousMsgs' = [PreviousMsgs EXCEPT ![p][q] = PreviousMsgs[p][q] \cup {m}]
                     /\ UNCHANGED K
         /\ \/ /\ Cardinality(m.d) > 1
@@ -99,7 +100,7 @@ GatherGroupsTimestamp(p, q) ==
             msgs == {x \in ProcessComm[p][q]: x.id = m.id}
             n == [id |-> m.id, d |-> m.d, ts |-> Max(timestamps), s |-> 2]
            IN
-            /\ \/ /\ m.ts >= Max(timestamps)
+            /\ \/ /\ m.ts >= Max(timestamps) \/ \A mm \in PreviousMsgs[p][q]: ~CONFLICTR(m, mm)
                   /\ Mem' = [Mem EXCEPT ![p][q] = InsertOrUpdate(Mem[p][q], [id |-> m.id, d |-> m.d, ts |-> m.ts, s |-> 3])]
                   /\ UNCHANGED <<K, PreviousMsgs, ABCast, Delivered>>
                \/ /\ m.ts < Max(timestamps)
@@ -110,9 +111,9 @@ GatherGroupsTimestamp(p, q) ==
             /\ UNCHANGED CorrectProcesses
 
 DoDeliver(p, q) ==
-    \E m \in Mem[p][q]: CanDeliver(m, Mem[p][q], Conflict)
+    \E m \in Mem[p][q]: CanDeliver(m, Mem[p][q], CONFLICTR)
         /\ LET
-            G == {mm \in Mem[p][q]: \A nn \in Mem[p][q] \ {mm}: mm.s = 3 /\ ~Conflict(mm, nn)}
+            G == {mm \in Mem[p][q]: \A nn \in Mem[p][q] \ {mm}: mm.s = 3 /\ ~CONFLICTR(mm, nn)}
             D == {m} \cup G
             index == Cardinality(Delivered[p][q])
            IN
@@ -132,8 +133,8 @@ NoOpCrashed(p, q) ==
 
 --------------------------------------------------------------
 Step(p, q) ==
-    \/ MaybeCrash(p, q)
-    \/ NoOpCrashed(p, q)
+    \*\/ MaybeCrash(p, q)
+    \*\/ NoOpCrashed(p, q)
     \/ ComputeGroupSeqNumber(p, q)
     \/ GatherGroupsTimestamp(p, q)
     \/ DoDeliver(p, q)
@@ -184,7 +185,7 @@ BothDelivered(p, pp, q, qq, m, n) ==
     /\ WasDelivered(pp, qq, m) /\ WasDelivered(pp, qq, n)
 LHS(p, pp, m, n) ==
     /\ {p, pp} \subseteq (m.d \intersect n.d)
-    /\ Conflict(m, n)
+    /\ CONFLICTR(m, n)
     /\ \E q, qq \in AllProcesses:
         BothDelivered(p, pp, q, qq, m, n)
 RHS(p, q, m, n) ==
@@ -207,5 +208,5 @@ Collision ==
                 /\ p \in (m.d \intersect n.d)
                 /\ ExistProcessDeliver(p, m)
                 /\ ExistProcessDeliver(p, n)
-                /\ Conflict(m, n) => DeliveredIndex(p, m) /= DeliveredIndex(p, n)
+                /\ CONFLICTR(m, n) => DeliveredIndex(p, m) /= DeliveredIndex(p, n)
 ==============================================================
